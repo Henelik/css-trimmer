@@ -1,0 +1,30 @@
+# css-trimmer configuration file
+
+# Classes never removed, regardless of whether they appear in source files.
+whitelist:
+  - js-* # glob patterns supported
+  - is-active
+  - hidden
+
+# Classes always removed, even if they appear in source files.
+blacklist:
+  - debug-*
+  - legacy-red
+
+# File extensions to scan inside src-dir (default shown).
+extensions:
+  - .html
+  - .templ
+  - .jsx
+  - .tsx
+
+# Regex patterns treated as dynamic class usage.
+# Any CSS class matching one of these regexes is considered "used"
+# even if not found literally in source files.
+dynamic_class_patterns:
+  - '^theme-'
+  - '^color-[a-z]+'
+
+# If true, css-trimmer exits with code 1 when any classes would be removed.
+# Useful for CI gates.
+fail_on_removal: false
