@@ -118,6 +118,16 @@ func (w *Writer) removeUnusedRules() string {
 						result = append(result, strings.Split(filteredRule, "\n")...)
 					}
 				}
+			} else {
+				// Look ahead to skip blank lines after the removed rule
+				nextIdx := i + 1
+				for nextIdx < len(lines) && strings.TrimSpace(lines[nextIdx]) == "" {
+					nextIdx++
+				}
+				// If there was at least one blank line after the removed rule, skip it
+				if nextIdx > i+1 {
+					i = nextIdx - 1 // -1 because we'll increment at the end of the loop
+				}
 			}
 
 			ruleBuffer = nil

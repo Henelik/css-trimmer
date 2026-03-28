@@ -749,3 +749,179 @@ func TestWriter_WriteAndBackup(t *testing.T) {
 		assert.True(t, os.IsNotExist(err))
 	})
 }
+
+func TestWriter_BlankLineRemoval(t *testing.T) {
+	t.Run("removes blank line after removed rule", func(t *testing.T) {
+		content := `.remove {
+  color: red;
+}
+
+.keep {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{"remove"})
+		result := writer.removeUnusedRules()
+
+		// Verify the rule was removed
+		assert.NotContains(t, result, ".remove")
+		assert.Contains(t, result, ".keep")
+		// Verify there's no leading blank line before .keep
+		lines := strings.Split(result, "\n")
+		assert.True(t, len(lines) > 0)
+		// The first non-empty line should be .keep
+		firstNonEmpty := ""
+		for _, line := range lines {
+			if strings.TrimSpace(line) != "" {
+				firstNonEmpty = line
+				break
+			}
+		}
+		assert.Contains(t, firstNonEmpty, ".keep")
+	})
+
+	t.Run("removes multiple blank lines after removed rule", func(t *testing.T) {
+		content := `.remove {
+  color: red;
+}
+
+
+.keep {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{"remove"})
+		result := writer.removeUnusedRules()
+
+		assert.NotContains(t, result, ".remove")
+		assert.Contains(t, result, ".keep")
+		// Count leading blank lines in result
+		lines := strings.Split(result, "\n")
+		blankCount := 0
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				blankCount++
+			} else {
+				break
+			}
+		}
+		// Should have no leading blank lines
+		assert.Equal(t, 0, blankCount)
+	})
+
+	t.Run("preserves blank lines between kept rules", func(t *testing.T) {
+		content := `.keep1 {
+  color: red;
+}
+
+.keep2 {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{})
+		result := writer.removeUnusedRules()
+
+		// Both rules should be kept
+		assert.Contains(t, result, ".keep1")
+		assert.Contains(t, result, ".keep2")
+		// Blank line between them should be preserved
+		assert.Contains(t, result, ".keep1 {\n  color: red;\n}\n\n.keep2")
+	})
+
+	t.Run("removes blank lines between removed rules", func(t *testing.T) {
+		content := `.remove1 {
+  color: red;
+}
+
+.remove2 {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{"remove1", "remove2"})
+		result := writer.removeUnusedRules()
+
+		// Both rules should be removed
+		assert.NotContains(t, result, ".remove1")
+		assert.NotContains(t, result, ".remove2")
+		// Result should be empty or just whitespace
+		assert.Equal(t, "", strings.TrimSpace(result))
+	})
+
+	t.Run("removes blank line after removed rule with kept rules on both sides", func(t *testing.T) {
+		content := `.keep1 {
+  color: red;
+}
+
+.remove {
+  color: yellow;
+}
+
+.keep2 {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{"remove"})
+		result := writer.removeUnusedRules()
+
+		// Both keep rules should be present
+		assert.Contains(t, result, ".keep1")
+		assert.Contains(t, result, ".keep2")
+		assert.NotContains(t, result, ".remove")
+
+		// Check structure: should have .keep1, blank line, .keep2 (not .remove between them)
+		lines := strings.Split(result, "\n")
+		keep1Found := false
+		keep2Found := false
+
+		for i, line := range lines {
+			if strings.Contains(line, ".keep1") {
+				keep1Found = true
+			}
+			if strings.Contains(line, ".keep2") {
+				keep2Found = true
+				// Verify no .remove before .keep2
+				for j := i - 1; j >= 0; j-- {
+					if strings.Contains(lines[j], ".remove") {
+						t.Fatal("Found .remove between .keep1 and .keep2")
+					}
+					if strings.TrimSpace(lines[j]) != "" {
+						break
+					}
+				}
+			}
+		}
+
+		assert.True(t, keep1Found, ".keep1 should be in result")
+		assert.True(t, keep2Found, ".keep2 should be in result")
+	})
+
+	t.Run("handles removed rule with no trailing blank line", func(t *testing.T) {
+		content := `.remove {
+  color: red;
+}
+.keep {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{"remove"})
+		result := writer.removeUnusedRules()
+
+		assert.NotContains(t, result, ".remove")
+		assert.Contains(t, result, ".keep")
+		// Should not crash and should handle gracefully
+		assert.NotEmpty(t, result)
+	})
+
+	t.Run("handles comments and blank lines correctly", func(t *testing.T) {
+		content := `/* Comment */
+
+.remove {
+  color: red;
+}
+
+.keep {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{"remove"})
+		result := writer.removeUnusedRules()
+
+		// Comment should be kept
+		assert.Contains(t, result, "/* Comment */")
+		assert.Contains(t, result, ".keep")
+		assert.NotContains(t, result, ".remove")
+	})
+}
