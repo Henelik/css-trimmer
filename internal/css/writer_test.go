@@ -349,6 +349,36 @@ func TestWriter_RealWorldScenarios(t *testing.T) {
 	})
 }
 
+func TestWriter_CommaSeparatedSelectors(t *testing.T) {
+	t.Run("removes all classes when both comma-separated selectors are unused", func(t *testing.T) {
+		content := `.modal-content,
+.modal-card {
+  overflow: auto;
+}`
+		writer := NewWriter(content, []string{"modal-content", "modal-card"})
+		result := writer.removeUnusedRules()
+
+		// Bug: The rule should be completely removed, not left with orphaned selectors
+		assert.NotContains(t, result, ".modal-content")
+		assert.NotContains(t, result, ".modal-card")
+		assert.NotContains(t, result, "overflow")
+	})
+
+	t.Run("keeps rule with at least one used selector when comma-separated", func(t *testing.T) {
+		content := `.modal-content,
+.modal-card {
+  overflow: auto;
+}`
+		writer := NewWriter(content, []string{"modal-content"})
+		result := writer.removeUnusedRules()
+
+		// Should keep the rule because .modal-card is not in removal list
+		assert.NotContains(t, result, ".modal-content")
+		assert.Contains(t, result, ".modal-card")
+		assert.Contains(t, result, "overflow")
+	})
+}
+
 func TestWriter_EdgeCases(t *testing.T) {
 	t.Run("handles CSS with no rules", func(t *testing.T) {
 		content := `/* Just a comment */

@@ -10,14 +10,14 @@ import (
 // Writer removes CSS rules and writes the result to a file.
 type Writer struct {
 	content  string
-	toRemove map[string]bool
+	toRemove map[string]struct{}
 }
 
 // NewWriter creates a CSS writer.
 func NewWriter(content string, toRemove []string) *Writer {
-	removeSet := make(map[string]bool)
+	removeSet := make(map[string]struct{})
 	for _, className := range toRemove {
-		removeSet[className] = true
+		removeSet[className] = struct{}{}
 	}
 
 	return &Writer{
@@ -53,50 +53,85 @@ func (w *Writer) removeUnusedRules() string {
 	var inRule bool
 	var ruleBuffer []string
 	var braceDepth int
+	var i int
 
-	for _, line := range lines {
+	for i < len(lines) {
+		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
 		// Count braces in this line
 		openBraces := strings.Count(line, "{")
 		closeBraces := strings.Count(line, "}")
 
-		// Check for rule start - only start a new rule if we're not already in one
+		// If we have a line with content and we're not in a rule, check if it could start one
+		if !inRule && trimmed != "" && !strings.HasPrefix(trimmed, "/*") {
+			// Look ahead to find if there's an opening brace coming up (for multi-line selectors)
+			// Start buffering this line as a potential selector
+			if !strings.Contains(trimmed, "{") && !strings.Contains(trimmed, "}") {
+				// This line doesn't have braces, but might be a selector line
+				// Buffer it and continue to the next line
+				ruleBuffer = []string{line}
+				inRule = true
+				braceDepth = 0
+				i++
+				continue
+			}
+		}
+
+		// Check for rule start - opening brace without closing
 		if openBraces > 0 && !strings.HasPrefix(trimmed, "/*") && !inRule {
 			inRule = true
-			ruleBuffer = []string{line}
+			if len(ruleBuffer) == 0 {
+				ruleBuffer = []string{line}
+			} else {
+				ruleBuffer = append(ruleBuffer, line)
+			}
 			braceDepth = openBraces - closeBraces
+			i++
 			continue
 		}
 
 		// Update brace depth if already in a rule
 		if inRule {
+			if len(ruleBuffer) == 0 {
+				ruleBuffer = []string{line}
+			} else {
+				ruleBuffer = append(ruleBuffer, line)
+			}
 			braceDepth += openBraces - closeBraces
 		}
 
 		// Check for rule end (returning to depth 0)
-		if braceDepth <= 0 && closeBraces > 0 && inRule {
+		if braceDepth <= 0 && closeBraces > 0 && inRule && len(ruleBuffer) > 0 {
 			inRule = false
-			ruleBuffer = append(ruleBuffer, line)
 
 			// Complete rule buffer - decide whether to keep it
 			rule := strings.Join(ruleBuffer, "\n")
 			if w.shouldKeepRule(rule) {
-				result = append(result, ruleBuffer...)
+				// If the rule has an ignore comment, keep it as-is
+				if strings.Contains(rule, "/* css-trimmer-ignore */") {
+					result = append(result, ruleBuffer...)
+				} else {
+					// Otherwise, process the rule to filter out selectors that should be removed
+					filteredRule := w.filterSelectorsFromRule(rule)
+					if filteredRule != "" {
+						result = append(result, strings.Split(filteredRule, "\n")...)
+					}
+				}
 			}
 
 			ruleBuffer = nil
 			braceDepth = 0
+			i++
 			continue
 		}
 
-		// If in rule, buffer the line
-		if inRule && len(ruleBuffer) > 0 {
-			ruleBuffer = append(ruleBuffer, line)
-		} else if !inRule {
-			// Outside rules - keep all content (comments, at-rules, etc)
+		// If not in rule and reached here, add line to result
+		if !inRule {
 			result = append(result, line)
 		}
+
+		i++
 	}
 
 	// Handle any incomplete rule at end
@@ -156,7 +191,7 @@ func (w *Writer) shouldKeepRule(rule string) bool {
 				if !seenNested[className] {
 					seenNested[className] = true
 					// If we find a class that should NOT be removed, keep the entire rule
-					if !w.toRemove[className] {
+					if _, ok := w.toRemove[className]; !ok {
 						return true
 					}
 				}
@@ -169,11 +204,79 @@ func (w *Writer) shouldKeepRule(rule string) bool {
 	// If all classes should be removed, remove the rule
 	// Otherwise keep it (at least one class should be kept)
 	for _, className := range selectorClasses {
-		if !w.toRemove[className] {
+		if _, ok := w.toRemove[className]; !ok {
 			return true
 		}
 	}
 
 	// All classes in this selector should be removed
 	return false
+}
+
+// filterSelectorsFromRule removes individual selectors from a comma-separated list
+// if they contain classes that should be removed.
+func (w *Writer) filterSelectorsFromRule(rule string) string {
+	// Find the opening brace
+	braceIdx := strings.Index(rule, "{")
+	if braceIdx == -1 {
+		return rule
+	}
+
+	selector := rule[:braceIdx]
+	body := rule[braceIdx:]
+
+	// Split selector by comma to get individual selectors
+	selectors := strings.Split(selector, ",")
+	var keptSelectors []string
+
+	for _, sel := range selectors {
+		trimmedSel := strings.TrimSpace(sel)
+		if trimmedSel == "" {
+			continue
+		}
+
+		// Extract classes from this individual selector
+		classRegex := regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
+		matches := classRegex.FindAllStringSubmatch(trimmedSel, -1)
+
+		var selectorClasses []string
+		seen := make(map[string]bool)
+		for _, match := range matches {
+			if len(match) > 1 {
+				className := match[1]
+				if !seen[className] {
+					selectorClasses = append(selectorClasses, className)
+					seen[className] = true
+				}
+			}
+		}
+
+		// Selector without classes, or selector with at least one class not in removal list
+		shouldKeep := false
+		if len(selectorClasses) == 0 {
+			// Non-class selectors (like div, p, :root, etc) should be kept
+			shouldKeep = true
+		} else {
+			// Check if at least one class should be kept
+			for _, className := range selectorClasses {
+				if _, ok := w.toRemove[className]; !ok {
+					shouldKeep = true
+					break
+				}
+			}
+		}
+
+		if shouldKeep {
+			keptSelectors = append(keptSelectors, sel)
+		}
+	}
+
+	// If no selectors remain, return empty string to remove the entire rule
+	if len(keptSelectors) == 0 {
+		return ""
+	}
+
+	// Reconstruct the rule with only kept selectors
+	newSelector := strings.Join(keptSelectors, ",")
+	return newSelector + body
 }
