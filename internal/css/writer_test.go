@@ -547,6 +547,92 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 	})
 }
 
+func TestWriter_MultilineSelectorWithPseudoFunctions(t *testing.T) {
+	t.Run("multiline selector with :not() - no character duplication", func(t *testing.T) {
+		// This is a regression test for the bug where an extra dot was prepended
+		// when filtering classes from multiline selectors with pseudo-functions
+		content := `.navbar-dropdown 
+.navbar-item:not(.is-active, .is-selected) {
+  background-color: #fff;
+}`
+		writer := NewWriter(content, []string{"is-selected"})
+		result := writer.removeUnusedRules()
+
+		// Verify the selector is correctly filtered
+		assert.Contains(t, result, ".navbar-item:not(.is-active)")
+		assert.NotContains(t, result, ".is-selected")
+		// Verify no character duplication occurred
+		assert.NotContains(t, result, "..")
+		assert.NotContains(t, result, "..navbar")
+		// Verify the rule body is preserved
+		assert.Contains(t, result, "background-color")
+	})
+
+	t.Run("multiline selector with :is() - preserves formatting", func(t *testing.T) {
+		content := `.button 
+.link:is(.primary, .secondary) {
+  padding: 10px;
+}`
+		writer := NewWriter(content, []string{"secondary"})
+		result := writer.removeUnusedRules()
+
+		assert.Contains(t, result, ".link:is(.primary)")
+		assert.NotContains(t, result, ".secondary")
+		assert.NotContains(t, result, "..")
+		assert.Contains(t, result, "padding")
+	})
+
+	t.Run("multiline selector with multiple pseudo-functions", func(t *testing.T) {
+		content := `.container 
+.item:not(.disabled, .archived):is(.visible, .hidden) {
+  display: block;
+}`
+		writer := NewWriter(content, []string{"archived", "hidden"})
+		result := writer.removeUnusedRules()
+
+		// After filtering, we should have:
+		// .item:not(.disabled) - because archived was removed
+		// :is(.visible) - because hidden was removed
+		assert.Contains(t, result, ".item:not(.disabled)")
+		assert.Contains(t, result, ":is(.visible)")
+		assert.NotContains(t, result, ".archived")
+		assert.NotContains(t, result, ".hidden")
+		assert.NotContains(t, result, "..")
+		assert.Contains(t, result, "display: block")
+	})
+
+	t.Run("multiline selector with trailing whitespace", func(t *testing.T) {
+		content := `.navbar-dropdown 
+.navbar-item:not(.is-active, .is-selected) {
+  background-color: #fff;
+}
+`
+		writer := NewWriter(content, []string{"is-selected"})
+		result := writer.removeUnusedRules()
+
+		// Ensure proper handling of trailing whitespace in selectors
+		lines := strings.Split(strings.TrimSpace(result), "\n")
+		for _, line := range lines {
+			// No line should have double dots
+			assert.NotContains(t, line, "..")
+		}
+		assert.Contains(t, result, ".navbar-item:not(.is-active)")
+	})
+
+	t.Run("single-line selector still works correctly", func(t *testing.T) {
+		content := `.navbar-dropdown .navbar-item:not(.is-active, .is-selected) {
+  background-color: #fff;
+}`
+		writer := NewWriter(content, []string{"is-selected"})
+		result := writer.removeUnusedRules()
+
+		assert.Contains(t, result, ".navbar-item:not(.is-active)")
+		assert.NotContains(t, result, ".is-selected")
+		assert.NotContains(t, result, "..")
+		assert.Contains(t, result, "background-color")
+	})
+}
+
 func TestWriter_EdgeCases(t *testing.T) {
 	t.Run("handles CSS with no rules", func(t *testing.T) {
 		content := `/* Just a comment */

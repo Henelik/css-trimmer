@@ -444,9 +444,17 @@ func (w *Writer) filterSelectorsFromRule(rule string) string {
 				// No changes were made, preserve original spacing
 				keptSelectors = append(keptSelectors, sel)
 			} else {
-				// Changes were made (classes filtered), preserve original leading space and use filtered content
-				leadingSpaces := len(sel) - len(trimmedSel)
-				result := sel[:leadingSpaces] + filteredSel
+				// Changes were made (classes filtered), preserve original leading spaces and use filtered content
+				// Calculate only leading whitespace, not trailing
+				leadingSpaceCount := 0
+				for _, ch := range sel {
+					if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+						leadingSpaceCount++
+					} else {
+						break
+					}
+				}
+				result := sel[:leadingSpaceCount] + filteredSel
 				keptSelectors = append(keptSelectors, result)
 			}
 		}
