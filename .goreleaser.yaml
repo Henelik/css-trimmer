@@ -20,17 +20,11 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
-    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
-    replacements:
-      darwin: macOS
-      linux: Linux
-      windows: Windows
-      amd64: x86_64
-      arm64: arm64
-    format_overrides:
-      - goos: windows
-        format: zip
+   - format: tar.gz
+     name_template: '{{ .ProjectName }}_{{ .Version }}_{{ replace .Os "darwin" "macOS" | replace .Os "linux" "Linux" | replace .Os "windows" "Windows" }}_{{ replace .Arch "amd64" "x86_64" }}'
+     format_overrides:
+       - goos: windows
+         format: zip
 
 checksum:
   name_template: '{{ .ProjectName }}_{{ .Version }}_checksums.txt'
