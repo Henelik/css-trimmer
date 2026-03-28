@@ -310,7 +310,7 @@ func TestClassInventoryAllClasses(t *testing.T) {
 		classes := inventory.AllClasses()
 
 		// Empty inventory may return nil slice
-		assert.True(t, classes == nil || len(classes) == 0)
+		assert.True(t, len(classes) == 0)
 	})
 
 	t.Run("returns unique classes", func(t *testing.T) {

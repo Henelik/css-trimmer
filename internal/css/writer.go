@@ -52,19 +52,30 @@ func (w *Writer) removeUnusedRules() string {
 	var result []string
 	var inRule bool
 	var ruleBuffer []string
+	var braceDepth int
 
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Check for rule start
-		if strings.Contains(line, "{") && !strings.HasPrefix(trimmed, "/*") {
+		// Count braces in this line
+		openBraces := strings.Count(line, "{")
+		closeBraces := strings.Count(line, "}")
+
+		// Check for rule start - only start a new rule if we're not already in one
+		if openBraces > 0 && !strings.HasPrefix(trimmed, "/*") && !inRule {
 			inRule = true
 			ruleBuffer = []string{line}
+			braceDepth = openBraces - closeBraces
 			continue
 		}
 
-		// Check for rule end
-		if strings.Contains(line, "}") && inRule {
+		// Update brace depth if already in a rule
+		if inRule {
+			braceDepth += openBraces - closeBraces
+		}
+
+		// Check for rule end (returning to depth 0)
+		if braceDepth <= 0 && closeBraces > 0 && inRule {
 			inRule = false
 			ruleBuffer = append(ruleBuffer, line)
 
@@ -75,13 +86,14 @@ func (w *Writer) removeUnusedRules() string {
 			}
 
 			ruleBuffer = nil
+			braceDepth = 0
 			continue
 		}
 
 		// If in rule, buffer the line
 		if inRule && len(ruleBuffer) > 0 {
 			ruleBuffer = append(ruleBuffer, line)
-		} else {
+		} else if !inRule {
 			// Outside rules - keep all content (comments, at-rules, etc)
 			result = append(result, line)
 		}
@@ -126,9 +138,32 @@ func (w *Writer) shouldKeepRule(rule string) bool {
 		}
 	}
 
-	// If no classes in selector, keep it
+	// If no classes in selector, also check for classes in the entire rule body
+	// (this handles nested rules in @media, @supports, etc)
 	if len(selectorClasses) == 0 {
-		return true
+		// Look for any class selectors in the nested content
+		nestedMatches := classRegex.FindAllStringSubmatch(rule, -1)
+		if len(nestedMatches) == 0 {
+			// No classes anywhere in the rule, keep it
+			return true
+		}
+
+		// There are classes in nested content, check if ANY of them should be kept
+		seenNested := make(map[string]bool)
+		for _, match := range nestedMatches {
+			if len(match) > 1 {
+				className := match[1]
+				if !seenNested[className] {
+					seenNested[className] = true
+					// If we find a class that should NOT be removed, keep the entire rule
+					if !w.toRemove[className] {
+						return true
+					}
+				}
+			}
+		}
+		// All nested classes should be removed, so remove the rule
+		return false
 	}
 
 	// If all classes should be removed, remove the rule

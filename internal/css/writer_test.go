@@ -1,8 +1,10 @@
 package css
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -277,15 +279,15 @@ func TestWriter_RealWorldScenarios(t *testing.T) {
 
 	t.Run("processes CSS with media queries", func(t *testing.T) {
 		content := `.mobile-only {
-  display: block;
+   display: block;
 }
 @media (max-width: 768px) {
-  .hide-mobile {
-    display: none;
-  }
+   .hide-mobile {
+     display: none;
+   }
 }
 .desktop {
-  display: block;
+   display: block;
 }`
 		writer := NewWriter(content, []string{"hide-mobile"})
 		result := writer.removeUnusedRules()
@@ -295,28 +297,53 @@ func TestWriter_RealWorldScenarios(t *testing.T) {
 		assert.NotContains(t, result, ".hide-mobile")
 	})
 
+	t.Run("bug: removes @media header but leaves content when no class selector", func(t *testing.T) {
+		// This is the bug from the report: @media block with NON-class selectors are treated as rules
+		// When we encounter "@media (prefers-color-scheme: dark) {" on line 1:
+		// - inRule = true, ruleBuffer = ["@media ..."]
+		// OLD BUG: When we get to ":root {" on line 2:
+		//   - It ALSO contains {, so we'd reset inRule and overwrite ruleBuffer!
+		//   - This causes the @media line to be lost
+		// FIXED: We should stay in the same rule and count braces properly
+		content := `@media (prefers-color-scheme: dark) {
+  :root {
+    --bulma-white-on-scheme-l: 100%;
+  }
+}`
+		writer := NewWriter(content, []string{})
+		result := writer.removeUnusedRules()
+
+		// Expected: The entire block should be preserved as-is
+		// The @media line and all content should remain
+		assert.Contains(t, result, "@media (prefers-color-scheme: dark)")
+		assert.Contains(t, result, ":root")
+		// Verify the structure is intact (not orphaned content)
+		lines := strings.Split(strings.TrimSpace(result), "\n")
+		assert.GreaterOrEqual(t, len(lines), 4) // Should have all 4+ lines
+	})
+
 	t.Run("handles large CSS files efficiently", func(t *testing.T) {
-		// Create a large CSS content
+		// Create a large CSS content with proper class names (not using Unicode conversion which breaks CSS)
 		content := ""
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			if i%10 == 0 {
-				content += ".unused-" + string(rune(i)) + " { color: red; }\n"
+				content += fmt.Sprintf(".unused-%d { color: red; }\n", i)
 			} else {
-				content += ".keep-" + string(rune(i)) + " { color: blue; }\n"
+				content += fmt.Sprintf(".keep-%d { color: blue; }\n", i)
 			}
 		}
 
 		toRemove := []string{}
 		for i := 0; i < 1000; i += 10 {
-			toRemove = append(toRemove, "unused-"+string(rune(i)))
+			toRemove = append(toRemove, fmt.Sprintf("unused-%d", i))
 		}
 
 		writer := NewWriter(content, toRemove)
 		result := writer.removeUnusedRules()
 
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			if i%10 == 0 {
-				assert.NotContains(t, result, ".unused-"+string(rune(i)))
+				assert.NotContains(t, result, fmt.Sprintf(".unused-%d", i))
 			}
 		}
 	})

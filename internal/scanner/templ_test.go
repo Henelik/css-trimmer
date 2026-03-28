@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -314,11 +315,18 @@ func TestExtractTemplClasses_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("handles very long class list", func(t *testing.T) {
-		classStr := ""
-		for i := 0; i < 50; i++ {
-			classStr += `"class-` + string(rune(i)) + `" `
+		var classStr strings.Builder
+		classStr.WriteString(`<div class="`)
+
+		for i := range 100 {
+			classStr.WriteString("class")
+			classStr.WriteRune(rune(i))
+			classStr.WriteString(" ")
 		}
-		content := `{ templ.Classes(` + classStr + `) }`
+
+		classStr.WriteString(`">Content</div>`)
+
+		content := `{ templ.Classes(` + classStr.String() + `) }`
 		classes := ExtractTemplClasses(content)
 
 		assert.Greater(t, len(classes), 0)

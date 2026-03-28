@@ -3,6 +3,7 @@ package scanner
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Henelik/css-trimmer/internal/config"
@@ -212,7 +213,7 @@ func TestExtractJSXClasses(t *testing.T) {
 		content := `<div className=""></div>`
 		result := extractJSXClasses(content)
 		// Function returns nil for empty, adjust test
-		assert.True(t, result == nil || len(result) == 0)
+		assert.True(t, len(result) == 0)
 	})
 
 	t.Run("extracts from both className and class", func(t *testing.T) {
@@ -310,11 +311,18 @@ func TestScannerScan_EdgeCases(t *testing.T) {
 		htmlFile := filepath.Join(tmpdir, "test.html")
 
 		// Create a file with many classes
-		classes := ""
-		for i := 0; i < 100; i++ {
-			classes += "class-" + string(rune(i)) + " "
+		var classStr strings.Builder
+		classStr.WriteString(`<div class="`)
+
+		for i := range 100 {
+			classStr.WriteString("class")
+			classStr.WriteRune(rune(i))
+			classStr.WriteString(" ")
 		}
-		err := os.WriteFile(htmlFile, []byte(`<div class="`+classes+`">Content</div>`), 0644)
+
+		classStr.WriteString(`">Content</div>`)
+
+		err := os.WriteFile(htmlFile, []byte(classStr.String()), 0644)
 		require.NoError(t, err)
 
 		cfg := &config.Config{

@@ -209,13 +209,17 @@ func TestExtractHTMLClasses_EdgeCases(t *testing.T) {
 	})
 
 	t.Run("handles long class list", func(t *testing.T) {
-		classStr := ""
-		for i := 0; i < 15; i++ {
-			classStr += "class" + string(rune('0'+byte(i%10))) + " "
-		}
-		html := `<div class="` + classStr + `">Content</div>`
+		var classStr strings.Builder
 
-		classes, err := ExtractHTMLClasses(strings.NewReader(html))
+		classStr.WriteString(`<div class="`)
+
+		for i := range 15 {
+			classStr.WriteString("class" + string(rune('0'+byte(i%10))) + " ")
+		}
+
+		classStr.WriteString(`">Content</div>`)
+
+		classes, err := ExtractHTMLClasses(strings.NewReader(classStr.String()))
 
 		require.NoError(t, err)
 		assert.Greater(t, len(classes), 5)
