@@ -3,58 +3,45 @@ package diff
 import (
 	"path"
 	"regexp"
-	"sort"
+	"slices"
 
 	"github.com/Henelik/css-trimmer/internal/config"
-	"github.com/Henelik/css-trimmer/internal/css"
 )
 
-// Engine computes the set of classes to remove based on defined, used, and config rules.
-type Engine struct {
-	defined   []string
-	used      []string
-	config    *config.Config
-	inventory css.ClassInventory
-}
-
-// NewEngine creates a new diff engine.
-func NewEngine(inventory css.ClassInventory, used []string, cfg *config.Config) *Engine {
-	return &Engine{
-		defined:   inventory.AllClasses(),
-		used:      used,
-		config:    cfg,
-		inventory: inventory,
-	}
+type DiffResult struct {
+	Used        []string
+	Unused      []string
+	Whitelisted []string
+	Blacklisted []string
+	ToRemove    []string
 }
 
 // Compute calculates which classes should be removed.
-func (e *Engine) Compute() *DiffResult {
+func Compute(inventory, usedClasses []string, cfg *config.Config) *DiffResult {
 	result := &DiffResult{
-		Used:        []string{},
-		Unused:      []string{},
-		Whitelisted: []string{},
-		Blacklisted: []string{},
-		ToRemove:    []string{},
+		Used:        make([]string, 0, len(inventory)),
+		Unused:      make([]string, 0, len(inventory)),
+		Whitelisted: make([]string, 0, len(inventory)),
+		Blacklisted: make([]string, 0, len(inventory)),
+		ToRemove:    make([]string, 0, len(inventory)),
 	}
 
 	// Build sets
-	usedSet := e.buildUsedSet()
-	whitelistSet := e.buildWhitelistSet()
-	blacklistSet := e.buildBlacklistSet()
+	usedSet := buildUsedSet(inventory, usedClasses, cfg.DynamicClassPatterns)
+	whitelistSet := buildWhitelistSet(inventory, cfg.Whitelist)
+	blacklistSet := buildBlacklistSet(inventory, cfg.Blacklist)
 
-	// Categorize all defined classes
-	toRemoveSet := make(map[string]struct{})
-
-	for _, className := range e.defined {
+	for _, className := range inventory {
 		_, isUsed := usedSet[className]
-		_, isWhitelisted := whitelistSet[className]
-		_, isBlacklisted := blacklistSet[className]
 
 		if isUsed {
 			result.Used = append(result.Used, className)
 		} else {
 			result.Unused = append(result.Unused, className)
 		}
+
+		_, isWhitelisted := whitelistSet[className]
+		_, isBlacklisted := blacklistSet[className]
 
 		if isWhitelisted {
 			result.Whitelisted = append(result.Whitelisted, className)
@@ -64,41 +51,32 @@ func (e *Engine) Compute() *DiffResult {
 			result.Blacklisted = append(result.Blacklisted, className)
 		}
 
-		// Determine if class should be removed
-		// 1. Blacklist always wins
-		if isBlacklisted {
-			toRemoveSet[className] = struct{}{}
-		} else if !isWhitelisted && !isUsed {
-			// 2. Not whitelisted and not used = remove
-			toRemoveSet[className] = struct{}{}
+		if isBlacklisted || (!isWhitelisted && !isUsed) {
+			result.ToRemove = append(result.ToRemove, className)
 		}
 	}
 
-	// Convert set to sorted slice
-	for className := range toRemoveSet {
-		result.ToRemove = append(result.ToRemove, className)
-	}
-	sort.Strings(result.ToRemove)
-	sort.Strings(result.Used)
-	sort.Strings(result.Unused)
-	sort.Strings(result.Whitelisted)
-	sort.Strings(result.Blacklisted)
+	slices.Sort(result.ToRemove)
+	slices.Sort(result.Used)
+	slices.Sort(result.Unused)
+	slices.Sort(result.Whitelisted)
+	slices.Sort(result.Blacklisted)
 
 	return result
 }
 
 // buildUsedSet creates a set of classes that appear in source files or match dynamic patterns.
-func (e *Engine) buildUsedSet() map[string]struct{} {
+func buildUsedSet(inventory, usedClasses, classPatterns []string) map[string]struct{} {
 	usedSet := make(map[string]struct{})
 
 	// Add explicitly found classes
-	for _, className := range e.used {
+	for _, className := range usedClasses {
 		usedSet[className] = struct{}{}
 	}
 
 	// Add classes matching dynamic patterns
-	for _, className := range e.defined {
-		if e.matchesDynamicPattern(className) {
+	for _, className := range inventory {
+		if matchesDynamicPattern(className, classPatterns) {
 			usedSet[className] = struct{}{}
 		}
 	}
@@ -107,22 +85,23 @@ func (e *Engine) buildUsedSet() map[string]struct{} {
 }
 
 // matchesDynamicPattern checks if a class matches any dynamic pattern regex.
-func (e *Engine) matchesDynamicPattern(className string) bool {
-	for _, pattern := range e.config.DynamicClassPatterns {
+func matchesDynamicPattern(className string, classPatterns []string) bool {
+	for _, pattern := range classPatterns {
 		if matched, _ := regexp.MatchString(pattern, className); matched {
 			return true
 		}
 	}
+
 	return false
 }
 
 // buildWhitelistSet creates a set of whitelisted classes using glob patterns.
-func (e *Engine) buildWhitelistSet() map[string]struct{} {
+func buildWhitelistSet(inventory, whitelist []string) map[string]struct{} {
 	whitelistSet := make(map[string]struct{})
 
-	for _, className := range e.defined {
-		for _, pattern := range e.config.Whitelist {
-			if e.globMatch(pattern, className) {
+	for _, className := range inventory {
+		for _, pattern := range whitelist {
+			if globMatch(pattern, className) {
 				whitelistSet[className] = struct{}{}
 				break
 			}
@@ -133,12 +112,12 @@ func (e *Engine) buildWhitelistSet() map[string]struct{} {
 }
 
 // buildBlacklistSet creates a set of blacklisted classes using glob patterns.
-func (e *Engine) buildBlacklistSet() map[string]struct{} {
+func buildBlacklistSet(inventory, blacklist []string) map[string]struct{} {
 	blacklistSet := make(map[string]struct{})
 
-	for _, className := range e.defined {
-		for _, pattern := range e.config.Blacklist {
-			if e.globMatch(pattern, className) {
+	for _, className := range inventory {
+		for _, pattern := range blacklist {
+			if globMatch(pattern, className) {
 				blacklistSet[className] = struct{}{}
 				break
 			}
@@ -149,7 +128,7 @@ func (e *Engine) buildBlacklistSet() map[string]struct{} {
 }
 
 // globMatch uses path.Match semantics for glob patterns.
-func (e *Engine) globMatch(pattern, className string) bool {
+func globMatch(pattern, className string) bool {
 	matched, _ := path.Match(pattern, className)
 	return matched
 }
