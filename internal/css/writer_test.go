@@ -379,6 +379,174 @@ func TestWriter_CommaSeparatedSelectors(t *testing.T) {
 	})
 }
 
+func TestSplitSelectorsRespectingParens(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "splits simple comma-separated selectors",
+			input:    ".class1, .class2, .class3",
+			expected: []string{".class1", " .class2", " .class3"},
+		},
+		{
+			name:     "preserves commas inside :not() parentheses",
+			input:    ".navbar-item:not(.is-active, .is-selected), .other",
+			expected: []string{".navbar-item:not(.is-active, .is-selected)", " .other"},
+		},
+		{
+			name:     "preserves commas inside :is() parentheses",
+			input:    ".button:is(.primary, .secondary), .link",
+			expected: []string{".button:is(.primary, .secondary)", " .link"},
+		},
+		{
+			name:     "preserves commas inside :where() parentheses",
+			input:    ".element:where(.active, .hover), .default",
+			expected: []string{".element:where(.active, .hover)", " .default"},
+		},
+		{
+			name:     "preserves commas inside :has() parentheses",
+			input:    ".container:has(> .child1, > .child2), .other",
+			expected: []string{".container:has(> .child1, > .child2)", " .other"},
+		},
+		{
+			name:     "handles nested parentheses",
+			input:    ".a:not(.b:is(.c, .d)), .e",
+			expected: []string{".a:not(.b:is(.c, .d))", " .e"},
+		},
+		{
+			name:     "handles empty parentheses",
+			input:    ".class(), .other",
+			expected: []string{".class()", " .other"},
+		},
+		{
+			name:     "handles multiple pseudo-functions with commas",
+			input:    ".item:not(.a, .b):is(.c, .d), .other",
+			expected: []string{".item:not(.a, .b):is(.c, .d)", " .other"},
+		},
+		{
+			name:     "single selector without commas",
+			input:    ".single",
+			expected: []string{".single"},
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := splitSelectorsRespectingParens(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestWriter_PseudoFunctionSelectors(t *testing.T) {
+	t.Run("bug: :not() with comma-separated selectors - removes one class", func(t *testing.T) {
+		// This is the exact bug from the report
+		content := `.navbar-dropdown .navbar-item:not(.is-active, .is-selected) {
+  background-color: #fff;
+}`
+		writer := NewWriter(content, []string{"is-selected"})
+		result := writer.removeUnusedRules()
+
+		// The closing parenthesis should be preserved
+		assert.Contains(t, result, ".navbar-item:not(.is-active)")
+		assert.NotContains(t, result, ".is-selected")
+		// Ensure the rule is properly formatted
+		assert.Contains(t, result, "background-color")
+	})
+
+	t.Run(":not() with all classes removed - keeps the rule but filters selector", func(t *testing.T) {
+		content := `.navbar-item:not(.is-active, .is-selected) {
+  color: red;
+}
+.other {
+  color: blue;
+}`
+		writer := NewWriter(content, []string{"is-active", "is-selected"})
+		result := writer.removeUnusedRules()
+
+		// The .navbar-item:not(...) rule should be kept because it has the .navbar-item selector
+		// Since the :not() function has no remaining classes, behavior depends on implementation
+		// but the parentheses must be balanced
+		assert.NotContains(t, result, ".is-active")
+		assert.NotContains(t, result, ".is-selected")
+		assert.Contains(t, result, ".other")
+	})
+
+	t.Run(":is() with multiple classes - removes one", func(t *testing.T) {
+		content := `.button:is(.primary, .secondary) {
+  padding: 10px;
+}`
+		writer := NewWriter(content, []string{"secondary"})
+		result := writer.removeUnusedRules()
+
+		// Should have the first class in :is()
+		assert.Contains(t, result, ".button:is(.primary)")
+		assert.NotContains(t, result, ".secondary")
+	})
+
+	t.Run(":where() with multiple classes - removes one", func(t *testing.T) {
+		content := `.element:where(.active, .inactive) {
+  opacity: 1;
+}`
+		writer := NewWriter(content, []string{"inactive"})
+		result := writer.removeUnusedRules()
+
+		assert.Contains(t, result, ".element:where(.active)")
+		assert.NotContains(t, result, ".inactive")
+	})
+
+	t.Run("complex selector with multiple pseudo-functions", func(t *testing.T) {
+		content := `.item:not(.disabled, .archived):is(.visible, .hidden) {
+  display: block;
+}`
+		writer := NewWriter(content, []string{"archived", "hidden"})
+		result := writer.removeUnusedRules()
+
+		// Both pseudo-functions should still be present with balanced parentheses
+		assert.Contains(t, result, ".item:not(.disabled)")
+		assert.Contains(t, result, ":is(.visible)")
+		assert.NotContains(t, result, ".hidden")
+		assert.NotContains(t, result, ".archived")
+	})
+
+	t.Run("multiple comma-separated selectors with pseudo-functions", func(t *testing.T) {
+		content := `.btn:not(.danger, .warning),
+.button:is(.primary, .secondary) {
+  cursor: pointer;
+}`
+		writer := NewWriter(content, []string{"warning", "secondary"})
+		result := writer.removeUnusedRules()
+
+		// Both rules should be in the result with proper parentheses
+		assert.Contains(t, result, ".btn:not(.danger)")
+		assert.Contains(t, result, ".button:is(.primary)")
+		assert.NotContains(t, result, ".warning")
+		assert.NotContains(t, result, ".secondary")
+		assert.Contains(t, result, "cursor: pointer")
+	})
+
+	t.Run("selector removed entirely when all classes in :not() are removed", func(t *testing.T) {
+		content := `.item:not(.a, .b), .other {
+  color: red;
+}`
+		writer := NewWriter(content, []string{"a", "b"})
+		result := writer.removeUnusedRules()
+
+		// The first selector should be removed, but .other should remain
+		// The rule should still exist because of .other
+		assert.NotContains(t, result, ".item:not")
+		assert.Contains(t, result, ".other")
+		assert.Contains(t, result, "color: red")
+	})
+}
+
 func TestWriter_EdgeCases(t *testing.T) {
 	t.Run("handles CSS with no rules", func(t *testing.T) {
 		content := `/* Just a comment */

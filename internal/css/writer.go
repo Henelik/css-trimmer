@@ -213,6 +213,169 @@ func (w *Writer) shouldKeepRule(rule string) bool {
 	return false
 }
 
+// splitSelectorsRespectingParens splits a comma-separated selector list while
+// preserving parentheses boundaries. This prevents splitting inside :not(), :is(), etc.
+func splitSelectorsRespectingParens(selector string) []string {
+	var result []string
+	var current strings.Builder
+	var parenDepth int
+
+	for _, ch := range selector {
+		switch ch {
+		case '(':
+			parenDepth++
+			current.WriteRune(ch)
+		case ')':
+			parenDepth--
+			current.WriteRune(ch)
+		case ',':
+			if parenDepth == 0 {
+				// This comma is a top-level separator
+				if current.Len() > 0 {
+					result = append(result, current.String())
+					current.Reset()
+				}
+			} else {
+				// This comma is inside parentheses, keep it
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+
+	// Add the last selector
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
+}
+
+// filterClassesInPseudoFunction removes classes from inside pseudo-function parentheses
+// while preserving the pseudo-function structure. For example:
+// .item:not(.removed, .kept) becomes .item:not(.kept) if .removed is in toRemove
+func (w *Writer) filterClassesInPseudoFunction(selector string) string {
+	var result strings.Builder
+	var parenDepth int
+	var parenStart int
+	runes := []rune(selector)
+
+	for i := range runes {
+		ch := runes[i]
+
+		if ch == '(' {
+			if parenDepth == 0 {
+				parenStart = i
+			}
+			parenDepth++
+		}
+
+		if parenDepth == 0 {
+			// Outside of any parentheses, just add the character
+			result.WriteRune(ch)
+		}
+
+		if ch == ')' {
+			parenDepth--
+			if parenDepth == 0 {
+				// Exiting parenthesis group - process the content
+				content := string(runes[parenStart : i+1])
+				filteredContent := w.filterPseudoFunctionContent(content)
+				if filteredContent == "REMOVE_THIS_SELECTOR" {
+					return "REMOVE_THIS_SELECTOR"
+				}
+				result.WriteString(filteredContent)
+			}
+		}
+	}
+
+	return result.String()
+}
+
+// filterPseudoFunctionContent filters classes inside pseudo-function parentheses
+// It splits by commas (respecting nested parens), filters out removed classes, and rejoins
+func (w *Writer) filterPseudoFunctionContent(content string) string {
+	// content is like "(.class1, .class2)"
+	if !strings.HasPrefix(content, "(") || !strings.HasSuffix(content, ")") {
+		return content
+	}
+
+	// Extract the inner content
+	inner := content[1 : len(content)-1]
+
+	// Split by top-level commas
+	parts := w.splitByCommaRespectingParens(inner)
+
+	var keptParts []string
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			continue
+		}
+
+		// Check if this part contains any classes that should be removed
+		classRegex := regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
+		matches := classRegex.FindAllStringSubmatch(trimmed, -1)
+
+		shouldKeep := true
+		for _, match := range matches {
+			if len(match) > 1 {
+				className := match[1]
+				if _, ok := w.toRemove[className]; ok {
+					// This part contains a class to be removed
+					shouldKeep = false
+					break
+				}
+			}
+		}
+
+		if shouldKeep && trimmed != "" {
+			keptParts = append(keptParts, part)
+		}
+	}
+
+	if len(keptParts) == 0 {
+		// If nothing remains in the pseudo-function, remove the entire selector
+		return "REMOVE_THIS_SELECTOR"
+	}
+
+	return "(" + strings.Join(keptParts, ",") + ")"
+}
+
+// splitByCommaRespectingParens is like splitSelectorsRespectingParens but for content inside parens
+func (w *Writer) splitByCommaRespectingParens(content string) []string {
+	var result []string
+	var current strings.Builder
+	var parenDepth int
+
+	for _, ch := range content {
+		switch ch {
+		case '(':
+			parenDepth++
+			current.WriteRune(ch)
+		case ')':
+			parenDepth--
+			current.WriteRune(ch)
+		case ',':
+			if parenDepth == 0 {
+				result = append(result, current.String())
+				current.Reset()
+			} else {
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
+}
+
 // filterSelectorsFromRule removes individual selectors from a comma-separated list
 // if they contain classes that should be removed.
 func (w *Writer) filterSelectorsFromRule(rule string) string {
@@ -225,8 +388,8 @@ func (w *Writer) filterSelectorsFromRule(rule string) string {
 	selector := rule[:braceIdx]
 	body := rule[braceIdx:]
 
-	// Split selector by comma to get individual selectors
-	selectors := strings.Split(selector, ",")
+	// Split selector by comma to get individual selectors, respecting parentheses
+	selectors := splitSelectorsRespectingParens(selector)
 	var keptSelectors []string
 
 	for _, sel := range selectors {
@@ -235,9 +398,17 @@ func (w *Writer) filterSelectorsFromRule(rule string) string {
 			continue
 		}
 
-		// Extract classes from this individual selector
+		// First, filter classes inside pseudo-functions like :not(), :is(), etc.
+		filteredSel := w.filterClassesInPseudoFunction(trimmedSel)
+
+		// Check if the entire selector was marked for removal
+		if filteredSel == "REMOVE_THIS_SELECTOR" {
+			continue
+		}
+
+		// Extract classes from this individual selector (excluding those in pseudo-functions)
 		classRegex := regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
-		matches := classRegex.FindAllStringSubmatch(trimmedSel, -1)
+		matches := classRegex.FindAllStringSubmatch(filteredSel, -1)
 
 		var selectorClasses []string
 		seen := make(map[string]bool)
@@ -267,7 +438,17 @@ func (w *Writer) filterSelectorsFromRule(rule string) string {
 		}
 
 		if shouldKeep {
-			keptSelectors = append(keptSelectors, sel)
+			// Preserve any leading/trailing whitespace from the original selector
+			// by using filteredSel but with original padding if they're the same after trimming
+			if trimmedSel == filteredSel {
+				// No changes were made, preserve original spacing
+				keptSelectors = append(keptSelectors, sel)
+			} else {
+				// Changes were made (classes filtered), preserve original leading space and use filtered content
+				leadingSpaces := len(sel) - len(trimmedSel)
+				result := sel[:leadingSpaces] + filteredSel
+				keptSelectors = append(keptSelectors, result)
+			}
 		}
 	}
 
