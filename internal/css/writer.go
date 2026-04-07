@@ -7,33 +7,19 @@ import (
 	"strings"
 )
 
-// Writer removes CSS rules and writes the result to a file.
-type Writer struct {
-	content  string
-	toRemove map[string]struct{}
-}
-
-// NewWriter creates a CSS writer.
-func NewWriter(content string, toRemove []string) *Writer {
+// Write applies removals and writes to the specified output file.
+func Write(content string, toRemove []string, outputPath string, createBackup bool) error {
 	removeSet := make(map[string]struct{})
 	for _, className := range toRemove {
 		removeSet[className] = struct{}{}
 	}
 
-	return &Writer{
-		content:  content,
-		toRemove: removeSet,
-	}
-}
-
-// Write applies removals and writes to the specified output file.
-func (w *Writer) Write(outputPath string, createBackup bool) error {
-	result := w.removeUnusedRules()
+	result := removeUnusedRules(content, removeSet)
 
 	// Create backup if needed
 	if createBackup && outputPath != "" {
 		backupPath := outputPath + ".bak"
-		if err := os.WriteFile(backupPath, []byte(w.content), 0644); err != nil {
+		if err := os.WriteFile(backupPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("failed to create backup: %w", err)
 		}
 	}
@@ -47,8 +33,8 @@ func (w *Writer) Write(outputPath string, createBackup bool) error {
 }
 
 // removeUnusedRules processes the CSS and removes rules with classes in toRemove.
-func (w *Writer) removeUnusedRules() string {
-	lines := strings.Split(w.content, "\n")
+func removeUnusedRules(content string, toRemove map[string]struct{}) string {
+	lines := strings.Split(content, "\n")
 	var result []string
 	var inRule bool
 	var ruleBuffer []string
@@ -107,13 +93,13 @@ func (w *Writer) removeUnusedRules() string {
 
 			// Complete rule buffer - decide whether to keep it
 			rule := strings.Join(ruleBuffer, "\n")
-			if w.shouldKeepRule(rule) {
+			if shouldKeepRule(rule, toRemove) {
 				// If the rule has an ignore comment, keep it as-is
 				if strings.Contains(rule, "/* css-trimmer-ignore */") {
 					result = append(result, ruleBuffer...)
 				} else {
 					// Otherwise, process the rule to filter out selectors that should be removed
-					filteredRule := w.filterSelectorsFromRule(rule)
+					filteredRule := filterSelectorsFromRule(rule, toRemove)
 					if filteredRule != "" {
 						result = append(result, strings.Split(filteredRule, "\n")...)
 					}
@@ -153,13 +139,11 @@ func (w *Writer) removeUnusedRules() string {
 }
 
 // shouldKeepRule determines if a CSS rule should be kept.
-func (w *Writer) shouldKeepRule(rule string) bool {
-	// Check for ignore comment
+func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
 	if strings.Contains(rule, "/* css-trimmer-ignore */") {
 		return true
 	}
 
-	// Extract selector from rule
 	braceIdx := strings.Index(rule, "{")
 	if braceIdx == -1 {
 		return true
@@ -201,7 +185,7 @@ func (w *Writer) shouldKeepRule(rule string) bool {
 				if !seenNested[className] {
 					seenNested[className] = true
 					// If we find a class that should NOT be removed, keep the entire rule
-					if _, ok := w.toRemove[className]; !ok {
+					if _, ok := toRemove[className]; !ok {
 						return true
 					}
 				}
@@ -214,7 +198,7 @@ func (w *Writer) shouldKeepRule(rule string) bool {
 	// If all classes should be removed, remove the rule
 	// Otherwise keep it (at least one class should be kept)
 	for _, className := range selectorClasses {
-		if _, ok := w.toRemove[className]; !ok {
+		if _, ok := toRemove[className]; !ok {
 			return true
 		}
 	}
@@ -265,7 +249,7 @@ func splitSelectorsRespectingParens(selector string) []string {
 // filterClassesInPseudoFunction removes classes from inside pseudo-function parentheses
 // while preserving the pseudo-function structure. For example:
 // .item:not(.removed, .kept) becomes .item:not(.kept) if .removed is in toRemove
-func (w *Writer) filterClassesInPseudoFunction(selector string) string {
+func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}) string {
 	var result strings.Builder
 	var parenDepth int
 	var parenStart int
@@ -291,7 +275,7 @@ func (w *Writer) filterClassesInPseudoFunction(selector string) string {
 			if parenDepth == 0 {
 				// Exiting parenthesis group - process the content
 				content := string(runes[parenStart : i+1])
-				filteredContent := w.filterPseudoFunctionContent(content)
+				filteredContent := filterPseudoFunctionContent(content, toRemove)
 				if filteredContent == "REMOVE_THIS_SELECTOR" {
 					return "REMOVE_THIS_SELECTOR"
 				}
@@ -305,7 +289,7 @@ func (w *Writer) filterClassesInPseudoFunction(selector string) string {
 
 // filterPseudoFunctionContent filters classes inside pseudo-function parentheses
 // It splits by commas (respecting nested parens), filters out removed classes, and rejoins
-func (w *Writer) filterPseudoFunctionContent(content string) string {
+func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) string {
 	// content is like "(.class1, .class2)"
 	if !strings.HasPrefix(content, "(") || !strings.HasSuffix(content, ")") {
 		return content
@@ -315,7 +299,7 @@ func (w *Writer) filterPseudoFunctionContent(content string) string {
 	inner := content[1 : len(content)-1]
 
 	// Split by top-level commas
-	parts := w.splitByCommaRespectingParens(inner)
+	parts := splitByCommaRespectingParens(inner)
 
 	var keptParts []string
 	for _, part := range parts {
@@ -332,7 +316,7 @@ func (w *Writer) filterPseudoFunctionContent(content string) string {
 		for _, match := range matches {
 			if len(match) > 1 {
 				className := match[1]
-				if _, ok := w.toRemove[className]; ok {
+				if _, ok := toRemove[className]; ok {
 					// This part contains a class to be removed
 					shouldKeep = false
 					break
@@ -354,7 +338,7 @@ func (w *Writer) filterPseudoFunctionContent(content string) string {
 }
 
 // splitByCommaRespectingParens is like splitSelectorsRespectingParens but for content inside parens
-func (w *Writer) splitByCommaRespectingParens(content string) []string {
+func splitByCommaRespectingParens(content string) []string {
 	var result []string
 	var current strings.Builder
 	var parenDepth int
@@ -388,7 +372,7 @@ func (w *Writer) splitByCommaRespectingParens(content string) []string {
 
 // filterSelectorsFromRule removes individual selectors from a comma-separated list
 // if they contain classes that should be removed.
-func (w *Writer) filterSelectorsFromRule(rule string) string {
+func filterSelectorsFromRule(rule string, toRemove map[string]struct{}) string {
 	// Find the opening brace
 	braceIdx := strings.Index(rule, "{")
 	if braceIdx == -1 {
@@ -409,7 +393,7 @@ func (w *Writer) filterSelectorsFromRule(rule string) string {
 		}
 
 		// First, filter classes inside pseudo-functions like :not(), :is(), etc.
-		filteredSel := w.filterClassesInPseudoFunction(trimmedSel)
+		filteredSel := filterClassesInPseudoFunction(trimmedSel, toRemove)
 
 		// Check if the entire selector was marked for removal
 		if filteredSel == "REMOVE_THIS_SELECTOR" {
@@ -440,7 +424,7 @@ func (w *Writer) filterSelectorsFromRule(rule string) string {
 		} else {
 			// Check if at least one class should be kept
 			for _, className := range selectorClasses {
-				if _, ok := w.toRemove[className]; !ok {
+				if _, ok := toRemove[className]; !ok {
 					shouldKeep = true
 					break
 				}

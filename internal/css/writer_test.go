@@ -11,6 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func toRemoveSet(toRemove []string) map[string]struct{} {
+	result := make(map[string]struct{})
+	for _, className := range toRemove {
+		result[className] = struct{}{}
+	}
+	return result
+}
+
 func TestWriterWrite(t *testing.T) {
 	t.Run("writes modified CSS to file without backup", func(t *testing.T) {
 		tmpfile, err := os.CreateTemp("", "css*.css")
@@ -24,8 +32,7 @@ func TestWriterWrite(t *testing.T) {
 .remove {
   color: red;
 }`
-		writer := NewWriter(content, []string{"remove"})
-		err = writer.Write(tmpfile.Name(), false)
+		err = Write(content, []string{"remove"}, tmpfile.Name(), false)
 
 		require.NoError(t, err)
 
@@ -43,12 +50,10 @@ func TestWriterWrite(t *testing.T) {
 		defer os.Remove(tmpfile.Name() + ".bak")
 
 		content := `.test { color: red; }`
-		writer := NewWriter(content, []string{})
-		err = writer.Write(tmpfile.Name(), true)
+		err = Write(content, []string{}, tmpfile.Name(), true)
 
 		require.NoError(t, err)
 
-		// Check backup file exists and has original content
 		backup, err := os.ReadFile(tmpfile.Name() + ".bak")
 		require.NoError(t, err)
 		assert.Equal(t, content, string(backup))
@@ -56,8 +61,7 @@ func TestWriterWrite(t *testing.T) {
 
 	t.Run("handles file write errors gracefully", func(t *testing.T) {
 		content := ".test { color: red; }"
-		writer := NewWriter(content, []string{})
-		err := writer.Write("/invalid/nonexistent/path/file.css", false)
+		err := Write(content, []string{}, "/invalid/nonexistent/path/file.css", false)
 
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to write output file")
@@ -70,9 +74,7 @@ func TestWriterWrite(t *testing.T) {
 		defer os.Remove(tmpfile.Name())
 
 		content := ".test { color: red; }"
-		writer := NewWriter(content, []string{})
-		// Try to create backup in non-existent directory
-		err = writer.Write("/invalid/path/file.css", true)
+		err = Write(content, []string{}, "/invalid/path/file.css", true)
 
 		assert.Error(t, err)
 	})
@@ -132,7 +134,7 @@ func TestWriterRemoveUnusedRules(t *testing.T) {
 }`,
 			toRemove:     []string{"remove"},
 			shouldKeep:   []string{".keep"},
-			shouldRemove: nil, // Rule is kept if any class is kept
+			shouldRemove: nil,
 		},
 		{
 			name: "preserves non-class selectors",
@@ -167,8 +169,7 @@ p {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			writer := NewWriter(tt.content, tt.toRemove)
-			result := writer.removeUnusedRules()
+			result := removeUnusedRules(tt.content, toRemoveSet(tt.toRemove))
 
 			for _, keep := range tt.shouldKeep {
 				assert.Contains(t, result, keep)
@@ -235,20 +236,19 @@ func TestWriterShouldKeepRule(t *testing.T) {
 			name:     "handles simple selector",
 			rule:     ".container { padding: 10px; }",
 			toRemove: []string{"remove"},
-			expected: true, // container is not in removal list
+			expected: true,
 		},
 		{
 			name:     "keeps rule without brace",
 			rule:     ".remove color: red;",
 			toRemove: []string{"remove"},
-			expected: true, // No brace, so returned as-is
+			expected: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			writer := NewWriter("", tt.toRemove)
-			result := writer.shouldKeepRule(tt.rule)
+			result := shouldKeepRule(tt.rule, toRemoveSet(tt.toRemove))
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -268,8 +268,7 @@ func TestWriter_RealWorldScenarios(t *testing.T) {
 .col-md-6 {
   width: 50%;
 }`
-		writer := NewWriter(content, []string{"unused-class"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"unused-class"}))
 
 		assert.Contains(t, result, ".container")
 		assert.Contains(t, result, ".row")
@@ -289,8 +288,7 @@ func TestWriter_RealWorldScenarios(t *testing.T) {
 .desktop {
    display: block;
 }`
-		writer := NewWriter(content, []string{"hide-mobile"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"hide-mobile"}))
 
 		assert.Contains(t, result, ".mobile-only")
 		assert.Contains(t, result, ".desktop")
@@ -298,32 +296,20 @@ func TestWriter_RealWorldScenarios(t *testing.T) {
 	})
 
 	t.Run("bug: removes @media header but leaves content when no class selector", func(t *testing.T) {
-		// This is the bug from the report: @media block with NON-class selectors are treated as rules
-		// When we encounter "@media (prefers-color-scheme: dark) {" on line 1:
-		// - inRule = true, ruleBuffer = ["@media ..."]
-		// OLD BUG: When we get to ":root {" on line 2:
-		//   - It ALSO contains {, so we'd reset inRule and overwrite ruleBuffer!
-		//   - This causes the @media line to be lost
-		// FIXED: We should stay in the same rule and count braces properly
 		content := `@media (prefers-color-scheme: dark) {
   :root {
     --bulma-white-on-scheme-l: 100%;
   }
 }`
-		writer := NewWriter(content, []string{})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{}))
 
-		// Expected: The entire block should be preserved as-is
-		// The @media line and all content should remain
 		assert.Contains(t, result, "@media (prefers-color-scheme: dark)")
 		assert.Contains(t, result, ":root")
-		// Verify the structure is intact (not orphaned content)
 		lines := strings.Split(strings.TrimSpace(result), "\n")
-		assert.GreaterOrEqual(t, len(lines), 4) // Should have all 4+ lines
+		assert.GreaterOrEqual(t, len(lines), 4)
 	})
 
 	t.Run("handles large CSS files efficiently", func(t *testing.T) {
-		// Create a large CSS content with proper class names (not using Unicode conversion which breaks CSS)
 		content := ""
 		for i := range 1000 {
 			if i%10 == 0 {
@@ -338,8 +324,7 @@ func TestWriter_RealWorldScenarios(t *testing.T) {
 			toRemove = append(toRemove, fmt.Sprintf("unused-%d", i))
 		}
 
-		writer := NewWriter(content, toRemove)
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet(toRemove))
 
 		for i := range 1000 {
 			if i%10 == 0 {
@@ -355,10 +340,8 @@ func TestWriter_CommaSeparatedSelectors(t *testing.T) {
 .modal-card {
   overflow: auto;
 }`
-		writer := NewWriter(content, []string{"modal-content", "modal-card"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"modal-content", "modal-card"}))
 
-		// Bug: The rule should be completely removed, not left with orphaned selectors
 		assert.NotContains(t, result, ".modal-content")
 		assert.NotContains(t, result, ".modal-card")
 		assert.NotContains(t, result, "overflow")
@@ -369,10 +352,8 @@ func TestWriter_CommaSeparatedSelectors(t *testing.T) {
 .modal-card {
   overflow: auto;
 }`
-		writer := NewWriter(content, []string{"modal-content"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"modal-content"}))
 
-		// Should keep the rule because .modal-card is not in removal list
 		assert.NotContains(t, result, ".modal-content")
 		assert.Contains(t, result, ".modal-card")
 		assert.Contains(t, result, "overflow")
@@ -447,17 +428,13 @@ func TestSplitSelectorsRespectingParens(t *testing.T) {
 
 func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 	t.Run("bug: :not() with comma-separated selectors - removes one class", func(t *testing.T) {
-		// This is the exact bug from the report
 		content := `.navbar-dropdown .navbar-item:not(.is-active, .is-selected) {
   background-color: #fff;
 }`
-		writer := NewWriter(content, []string{"is-selected"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"is-selected"}))
 
-		// The closing parenthesis should be preserved
 		assert.Contains(t, result, ".navbar-item:not(.is-active)")
 		assert.NotContains(t, result, ".is-selected")
-		// Ensure the rule is properly formatted
 		assert.Contains(t, result, "background-color")
 	})
 
@@ -468,12 +445,8 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 .other {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"is-active", "is-selected"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"is-active", "is-selected"}))
 
-		// The .navbar-item:not(...) rule should be kept because it has the .navbar-item selector
-		// Since the :not() function has no remaining classes, behavior depends on implementation
-		// but the parentheses must be balanced
 		assert.NotContains(t, result, ".is-active")
 		assert.NotContains(t, result, ".is-selected")
 		assert.Contains(t, result, ".other")
@@ -483,10 +456,8 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 		content := `.button:is(.primary, .secondary) {
   padding: 10px;
 }`
-		writer := NewWriter(content, []string{"secondary"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"secondary"}))
 
-		// Should have the first class in :is()
 		assert.Contains(t, result, ".button:is(.primary)")
 		assert.NotContains(t, result, ".secondary")
 	})
@@ -495,8 +466,7 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 		content := `.element:where(.active, .inactive) {
   opacity: 1;
 }`
-		writer := NewWriter(content, []string{"inactive"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"inactive"}))
 
 		assert.Contains(t, result, ".element:where(.active)")
 		assert.NotContains(t, result, ".inactive")
@@ -506,10 +476,8 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 		content := `.item:not(.disabled, .archived):is(.visible, .hidden) {
   display: block;
 }`
-		writer := NewWriter(content, []string{"archived", "hidden"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"archived", "hidden"}))
 
-		// Both pseudo-functions should still be present with balanced parentheses
 		assert.Contains(t, result, ".item:not(.disabled)")
 		assert.Contains(t, result, ":is(.visible)")
 		assert.NotContains(t, result, ".hidden")
@@ -521,10 +489,8 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 .button:is(.primary, .secondary) {
   cursor: pointer;
 }`
-		writer := NewWriter(content, []string{"warning", "secondary"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"warning", "secondary"}))
 
-		// Both rules should be in the result with proper parentheses
 		assert.Contains(t, result, ".btn:not(.danger)")
 		assert.Contains(t, result, ".button:is(.primary)")
 		assert.NotContains(t, result, ".warning")
@@ -536,11 +502,8 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 		content := `.item:not(.a, .b), .other {
   color: red;
 }`
-		writer := NewWriter(content, []string{"a", "b"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"a", "b"}))
 
-		// The first selector should be removed, but .other should remain
-		// The rule should still exist because of .other
 		assert.NotContains(t, result, ".item:not")
 		assert.Contains(t, result, ".other")
 		assert.Contains(t, result, "color: red")
@@ -549,22 +512,16 @@ func TestWriter_PseudoFunctionSelectors(t *testing.T) {
 
 func TestWriter_MultilineSelectorWithPseudoFunctions(t *testing.T) {
 	t.Run("multiline selector with :not() - no character duplication", func(t *testing.T) {
-		// This is a regression test for the bug where an extra dot was prepended
-		// when filtering classes from multiline selectors with pseudo-functions
 		content := `.navbar-dropdown 
 .navbar-item:not(.is-active, .is-selected) {
   background-color: #fff;
 }`
-		writer := NewWriter(content, []string{"is-selected"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"is-selected"}))
 
-		// Verify the selector is correctly filtered
 		assert.Contains(t, result, ".navbar-item:not(.is-active)")
 		assert.NotContains(t, result, ".is-selected")
-		// Verify no character duplication occurred
 		assert.NotContains(t, result, "..")
 		assert.NotContains(t, result, "..navbar")
-		// Verify the rule body is preserved
 		assert.Contains(t, result, "background-color")
 	})
 
@@ -573,8 +530,7 @@ func TestWriter_MultilineSelectorWithPseudoFunctions(t *testing.T) {
 .link:is(.primary, .secondary) {
   padding: 10px;
 }`
-		writer := NewWriter(content, []string{"secondary"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"secondary"}))
 
 		assert.Contains(t, result, ".link:is(.primary)")
 		assert.NotContains(t, result, ".secondary")
@@ -587,12 +543,8 @@ func TestWriter_MultilineSelectorWithPseudoFunctions(t *testing.T) {
 .item:not(.disabled, .archived):is(.visible, .hidden) {
   display: block;
 }`
-		writer := NewWriter(content, []string{"archived", "hidden"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"archived", "hidden"}))
 
-		// After filtering, we should have:
-		// .item:not(.disabled) - because archived was removed
-		// :is(.visible) - because hidden was removed
 		assert.Contains(t, result, ".item:not(.disabled)")
 		assert.Contains(t, result, ":is(.visible)")
 		assert.NotContains(t, result, ".archived")
@@ -607,13 +559,10 @@ func TestWriter_MultilineSelectorWithPseudoFunctions(t *testing.T) {
   background-color: #fff;
 }
 `
-		writer := NewWriter(content, []string{"is-selected"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"is-selected"}))
 
-		// Ensure proper handling of trailing whitespace in selectors
 		lines := strings.Split(strings.TrimSpace(result), "\n")
 		for _, line := range lines {
-			// No line should have double dots
 			assert.NotContains(t, line, "..")
 		}
 		assert.Contains(t, result, ".navbar-item:not(.is-active)")
@@ -623,8 +572,7 @@ func TestWriter_MultilineSelectorWithPseudoFunctions(t *testing.T) {
 		content := `.navbar-dropdown .navbar-item:not(.is-active, .is-selected) {
   background-color: #fff;
 }`
-		writer := NewWriter(content, []string{"is-selected"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"is-selected"}))
 
 		assert.Contains(t, result, ".navbar-item:not(.is-active)")
 		assert.NotContains(t, result, ".is-selected")
@@ -637,8 +585,7 @@ func TestWriter_EdgeCases(t *testing.T) {
 	t.Run("handles CSS with no rules", func(t *testing.T) {
 		content := `/* Just a comment */
 `
-		writer := NewWriter(content, []string{"unused"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"unused"}))
 
 		assert.Contains(t, result, "/* Just a comment */")
 	})
@@ -649,29 +596,22 @@ func TestWriter_EdgeCases(t *testing.T) {
 .next {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"incomplete"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"incomplete"}))
 
-		// Should handle gracefully without panicking
 		assert.NotEmpty(t, result)
 	})
 
 	t.Run("handles CSS with multiple ignore comments", func(t *testing.T) {
-		content := `.remove1 {
-  /* css-trimmer-ignore */
-  color: red;
-}
+		content := `.remove1 { /* css-trimmer-ignore */ color: red; }
 .remove2 { /* css-trimmer-ignore */ color: blue; }`
-		writer := NewWriter(content, []string{"remove1", "remove2"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove1", "remove2"}))
 
 		assert.Contains(t, result, ".remove1")
 		assert.Contains(t, result, ".remove2")
 	})
 
 	t.Run("handles empty content", func(t *testing.T) {
-		writer := NewWriter("", []string{"test"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules("", toRemoveSet([]string{"test"}))
 
 		assert.Equal(t, "", result)
 	})
@@ -683,8 +623,7 @@ func TestWriter_EdgeCases(t *testing.T) {
 .form-control-lg {
   width: 100%;
 }`
-		writer := NewWriter(content, []string{"form-control-lg"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"form-control-lg"}))
 
 		assert.Contains(t, result, ".btn-primary")
 		assert.NotContains(t, result, ".form-control-lg")
@@ -702,8 +641,7 @@ func TestWriter_WriteAndBackup(t *testing.T) {
 .remove {
   color: blue;
 }`
-		writer := NewWriter(originalContent, []string{"remove"})
-		err := writer.Write(outputPath, true)
+		err := Write(originalContent, []string{"remove"}, outputPath, true)
 
 		require.NoError(t, err)
 
@@ -723,8 +661,7 @@ func TestWriter_WriteAndBackup(t *testing.T) {
 .remove {
   color: red;
 }`
-		writer := NewWriter(originalContent, []string{"remove"})
-		err := writer.Write(outputPath, true)
+		err := Write(originalContent, []string{"remove"}, outputPath, true)
 
 		require.NoError(t, err)
 
@@ -739,9 +676,7 @@ func TestWriter_WriteAndBackup(t *testing.T) {
 		outputPath := filepath.Join(tmpdir, "output.css")
 		backupPath := outputPath + ".bak"
 
-		content := ".test { color: red; }"
-		writer := NewWriter(content, []string{})
-		err := writer.Write(outputPath, false)
+		err := Write(".test { color: red; }", []string{}, outputPath, false)
 
 		require.NoError(t, err)
 
@@ -759,16 +694,12 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 .keep {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"remove"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove"}))
 
-		// Verify the rule was removed
 		assert.NotContains(t, result, ".remove")
 		assert.Contains(t, result, ".keep")
-		// Verify there's no leading blank line before .keep
 		lines := strings.Split(result, "\n")
 		assert.True(t, len(lines) > 0)
-		// The first non-empty line should be .keep
 		firstNonEmpty := ""
 		for _, line := range lines {
 			if strings.TrimSpace(line) != "" {
@@ -788,12 +719,10 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 .keep {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"remove"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove"}))
 
 		assert.NotContains(t, result, ".remove")
 		assert.Contains(t, result, ".keep")
-		// Count leading blank lines in result
 		lines := strings.Split(result, "\n")
 		blankCount := 0
 		for _, line := range lines {
@@ -803,7 +732,6 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 				break
 			}
 		}
-		// Should have no leading blank lines
 		assert.Equal(t, 0, blankCount)
 	})
 
@@ -815,13 +743,10 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 .keep2 {
   color: blue;
 }`
-		writer := NewWriter(content, []string{})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{}))
 
-		// Both rules should be kept
 		assert.Contains(t, result, ".keep1")
 		assert.Contains(t, result, ".keep2")
-		// Blank line between them should be preserved
 		assert.Contains(t, result, ".keep1 {\n  color: red;\n}\n\n.keep2")
 	})
 
@@ -833,13 +758,10 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 .remove2 {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"remove1", "remove2"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove1", "remove2"}))
 
-		// Both rules should be removed
 		assert.NotContains(t, result, ".remove1")
 		assert.NotContains(t, result, ".remove2")
-		// Result should be empty or just whitespace
 		assert.Equal(t, "", strings.TrimSpace(result))
 	})
 
@@ -855,15 +777,12 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 .keep2 {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"remove"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove"}))
 
-		// Both keep rules should be present
 		assert.Contains(t, result, ".keep1")
 		assert.Contains(t, result, ".keep2")
 		assert.NotContains(t, result, ".remove")
 
-		// Check structure: should have .keep1, blank line, .keep2 (not .remove between them)
 		lines := strings.Split(result, "\n")
 		keep1Found := false
 		keep2Found := false
@@ -874,7 +793,6 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 			}
 			if strings.Contains(line, ".keep2") {
 				keep2Found = true
-				// Verify no .remove before .keep2
 				for j := i - 1; j >= 0; j-- {
 					if strings.Contains(lines[j], ".remove") {
 						t.Fatal("Found .remove between .keep1 and .keep2")
@@ -897,12 +815,10 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 .keep {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"remove"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove"}))
 
 		assert.NotContains(t, result, ".remove")
 		assert.Contains(t, result, ".keep")
-		// Should not crash and should handle gracefully
 		assert.NotEmpty(t, result)
 	})
 
@@ -916,10 +832,8 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 .keep {
   color: blue;
 }`
-		writer := NewWriter(content, []string{"remove"})
-		result := writer.removeUnusedRules()
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove"}))
 
-		// Comment should be kept
 		assert.Contains(t, result, "/* Comment */")
 		assert.Contains(t, result, ".keep")
 		assert.NotContains(t, result, ".remove")

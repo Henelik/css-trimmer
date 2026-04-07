@@ -150,8 +150,7 @@ func runCssTrimmer(cmd *cobra.Command, args []string) {
 
 	// Write if not dry run
 	if !dryRun && len(diffResult.ToRemove) > 0 {
-		writer := css.NewWriter(cssRes.content, diffResult.ToRemove)
-		err := writer.Write(outFile, !noBackup)
+		err := css.Write(cssRes.content, diffResult.ToRemove, outFile, !noBackup)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Write error: %v\n", err)
 			os.Exit(3)
