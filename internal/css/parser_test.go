@@ -7,13 +7,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParserParse(t *testing.T) {
+func TestParseCSS(t *testing.T) {
 	t.Run("parses single class selector", func(t *testing.T) {
 		content := `.test {
   color: red;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		require.NotNil(t, inventory)
@@ -31,8 +30,7 @@ func TestParserParse(t *testing.T) {
 .button {
   padding: 10px;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, 3, len(inventory))
@@ -45,8 +43,7 @@ func TestParserParse(t *testing.T) {
 		content := `.header.active.sticky {
   position: fixed;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, 3, len(inventory))
@@ -65,8 +62,7 @@ func TestParserParse(t *testing.T) {
 .form-group + .form-group {
   margin-top: 10px;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "button")
@@ -83,8 +79,7 @@ func TestParserParse(t *testing.T) {
 }
 
 /* Another comment */`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(inventory))
@@ -101,8 +96,7 @@ func TestParserParse(t *testing.T) {
 .label-primary_active {
   font-weight: bold;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "btn-primary")
@@ -117,8 +111,7 @@ func TestParserParse(t *testing.T) {
 .text-size-2xl {
   font-size: 24px;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "col-md-12")
@@ -132,8 +125,7 @@ func TestParserParse(t *testing.T) {
 .second {
   color: blue;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, 1, inventory["first"].StartLine)
@@ -148,8 +140,7 @@ func TestParserParse(t *testing.T) {
 div {
   display: block;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, 0, len(inventory))
@@ -158,10 +149,9 @@ div {
 	t.Run("handles multiline selectors", func(t *testing.T) {
 		content := `.container,
 .wrapper {
-	 max-width: 1200px;
+ 	 max-width: 1200px;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		// Parser only extracts from the line with {, so only wrapper on second line
@@ -175,8 +165,7 @@ div {
 .test {
   color: blue;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, 1, len(inventory))
@@ -185,8 +174,7 @@ div {
 	})
 
 	t.Run("handles empty CSS", func(t *testing.T) {
-		parser := NewParser("")
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS("")
 
 		require.NoError(t, err)
 		assert.Equal(t, 0, len(inventory))
@@ -201,8 +189,7 @@ div {
 .desktop {
   display: none;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "mobile-only")
@@ -280,8 +267,7 @@ func TestExtractClassesFromSelector(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			parser := NewParser("")
-			result := parser.extractClassesFromSelector(tt.selector)
+			result := extractClassesFromSelector(tt.selector)
 			assert.Equal(t, tt.expectedClasses, result)
 		})
 	}
@@ -332,7 +318,7 @@ func TestClassInventoryAllClasses(t *testing.T) {
 	})
 }
 
-func TestParser_RealWorldScenarios(t *testing.T) {
+func TestParseCSS_RealWorldScenarios(t *testing.T) {
 	t.Run("parses Bootstrap-like CSS", func(t *testing.T) {
 		content := `.container {
   max-width: 1200px;
@@ -349,8 +335,7 @@ func TestParser_RealWorldScenarios(t *testing.T) {
 .text-center {
   text-align: center;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "container")
@@ -374,8 +359,7 @@ func TestParser_RealWorldScenarios(t *testing.T) {
 .bg-white {
   background-color: white;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Equal(t, 4, len(inventory))
@@ -394,8 +378,7 @@ func TestParser_RealWorldScenarios(t *testing.T) {
   background: #333;
   color: white;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "header")
@@ -403,13 +386,12 @@ func TestParser_RealWorldScenarios(t *testing.T) {
 	})
 }
 
-func TestParser_EdgeCases(t *testing.T) {
+func TestParseCSS_EdgeCases(t *testing.T) {
 	t.Run("handles class names with uppercase letters", func(t *testing.T) {
 		content := `.MyComponent {
   color: red;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "MyComponent")
@@ -420,8 +402,7 @@ func TestParser_EdgeCases(t *testing.T) {
   color: red;
 }
 `
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "test")
@@ -429,8 +410,7 @@ func TestParser_EdgeCases(t *testing.T) {
 
 	t.Run("handles CSS with no line breaks", func(t *testing.T) {
 		content := ".test { color: red; }"
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "test")
@@ -440,8 +420,7 @@ func TestParser_EdgeCases(t *testing.T) {
 		content := `.a > .b > .c > .d {
   margin: 0;
 }`
-		parser := NewParser(content)
-		inventory, err := parser.Parse()
+		inventory, err := ParseCSS(content)
 
 		require.NoError(t, err)
 		assert.Contains(t, inventory, "a")

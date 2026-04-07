@@ -102,8 +102,7 @@ func extractJSXClasses(content string) []string {
 	classNameRegex := regexp.MustCompile(`className="([^"]*)"`)
 	for _, match := range classNameRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
-			parts := strings.Fields(match[1])
-			for _, part := range parts {
+			for part := range strings.FieldsSeq(match[1]) {
 				if part != "" && !classSet[part] {
 					classes = append(classes, part)
 					classSet[part] = true
@@ -116,8 +115,7 @@ func extractJSXClasses(content string) []string {
 	classRegex := regexp.MustCompile(`class="([^"]*)"`)
 	for _, match := range classRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
-			parts := strings.Fields(match[1])
-			for _, part := range parts {
+			for part := range strings.FieldsSeq(match[1]) {
 				if part != "" && !classSet[part] {
 					classes = append(classes, part)
 					classSet[part] = true

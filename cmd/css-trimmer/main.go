@@ -13,6 +13,19 @@ import (
 	"github.com/Henelik/css-trimmer/internal/scanner"
 )
 
+// scanResult holds the output from the scanner goroutine
+type scanResult struct {
+	usedClasses  []string
+	filesScanned int
+	err          error
+}
+
+// cssReadResult holds the output from the CSS read goroutine
+type cssReadResult struct {
+	content string
+	err     error
+}
+
 var (
 	dryRun     bool
 	configPath string
@@ -58,37 +71,59 @@ func runCssTrimmer(cmd *cobra.Command, args []string) {
 		os.Exit(2)
 	}
 
-	// Scan source directory
-	scan := scanner.NewScanner(cfg)
-	usedClasses, filesScanned, err := scan.Scan(srcDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Scan error: %v\n", err)
-		os.Exit(3)
-	}
+	// Create channels for parallel operations
+	scanCh := make(chan scanResult, 1)
+	cssCh := make(chan cssReadResult, 1)
 
-	// Read CSS file
-	cssContent, err := os.ReadFile(cssFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "CSS read error: %v\n", err)
+	// Launch goroutine for reading CSS file
+	go func() {
+		cssContent, err := os.ReadFile(cssFile)
+		cssCh <- cssReadResult{
+			content: string(cssContent),
+			err:     err,
+		}
+	}()
+
+	// Launch goroutine for scanning source directory
+	go func() {
+		scan := scanner.NewScanner(cfg)
+		usedClasses, filesScanned, err := scan.Scan(srcDir)
+		scanCh <- scanResult{
+			usedClasses:  usedClasses,
+			filesScanned: filesScanned,
+			err:          err,
+		}
+	}()
+
+	// Wait for CSS read results
+	cssRes := <-cssCh
+	if cssRes.err != nil {
+		fmt.Fprintf(os.Stderr, "CSS read error: %v\n", cssRes.err)
 		os.Exit(3)
 	}
 
 	// Parse CSS
-	parser := css.NewParser(string(cssContent))
-	inventory, err := parser.Parse()
+	inventory, err := css.ParseCSS(cssRes.content)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "CSS parse error: %v\n", err)
 		os.Exit(2)
 	}
 
+	// Wait for scan results
+	scanRes := <-scanCh
+	if scanRes.err != nil {
+		fmt.Fprintf(os.Stderr, "Scan error: %v\n", scanRes.err)
+		os.Exit(3)
+	}
+
 	// Compute diff
-	diffResult := diff.Compute(inventory.AllClasses(), usedClasses, cfg)
+	diffResult := diff.Compute(inventory.AllClasses(), scanRes.usedClasses, cfg)
 
 	// Print verbose info if requested
 	if verbose {
 		fmt.Fprintf(os.Stderr, "Verbose output:\n")
 		fmt.Fprintf(os.Stderr, "  Defined: %v\n", inventory.AllClasses())
-		fmt.Fprintf(os.Stderr, "  Used: %v\n", usedClasses)
+		fmt.Fprintf(os.Stderr, "  Used: %v\n", scanRes.usedClasses)
 		fmt.Fprintf(os.Stderr, "  To remove: %v\n", diffResult.ToRemove)
 	}
 
@@ -104,7 +139,7 @@ func runCssTrimmer(cmd *cobra.Command, args []string) {
 		backupFile = outFile + ".bak"
 	}
 
-	rep := report.NewReporter(diffResult, filesScanned, outFile, backupFile)
+	rep := report.NewReporter(diffResult, scanRes.filesScanned, outFile, backupFile)
 
 	// Output report
 	if format == "json" {
@@ -115,7 +150,7 @@ func runCssTrimmer(cmd *cobra.Command, args []string) {
 
 	// Write if not dry run
 	if !dryRun && len(diffResult.ToRemove) > 0 {
-		writer := css.NewWriter(string(cssContent), diffResult.ToRemove)
+		writer := css.NewWriter(cssRes.content, diffResult.ToRemove)
 		err := writer.Write(outFile, !noBackup)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Write error: %v\n", err)

@@ -5,25 +5,13 @@ import (
 	"strings"
 )
 
-// Parser builds a ClassInventory from CSS content.
-type Parser struct {
-	content   string
-	inventory ClassInventory
-}
-
-// NewParser creates a new CSS parser.
-func NewParser(content string) *Parser {
-	return &Parser{
-		content:   content,
-		inventory: make(ClassInventory),
-	}
-}
-
 // Parse analyzes the CSS and builds a class inventory of defined classes.
-func (p *Parser) Parse() (ClassInventory, error) {
-	lines := strings.Split(p.content, "\n")
+func ParseCSS(content string) (ClassInventory, error) {
+	lines := strings.Split(content, "\n")
+
 	var inRule bool
 	var ruleStart int
+	inventory := make(ClassInventory, len(lines))
 
 	for i, line := range lines {
 		lineNum := i + 1
@@ -41,11 +29,11 @@ func (p *Parser) Parse() (ClassInventory, error) {
 
 			// Extract selector (everything before the {)
 			selectorPart := strings.Split(trimmed, "{")[0]
-			classes := p.extractClassesFromSelector(selectorPart)
+			classes := extractClassesFromSelector(selectorPart)
 
 			for _, className := range classes {
-				if _, exists := p.inventory[className]; !exists {
-					p.inventory[className] = ClassInfo{StartLine: ruleStart, EndLine: lineNum}
+				if _, exists := inventory[className]; !exists {
+					inventory[className] = ClassInfo{StartLine: ruleStart, EndLine: lineNum}
 				}
 			}
 		}
@@ -56,11 +44,11 @@ func (p *Parser) Parse() (ClassInventory, error) {
 		}
 	}
 
-	return p.inventory, nil
+	return inventory, nil
 }
 
 // extractClassesFromSelector finds all class names in a CSS selector.
-func (p *Parser) extractClassesFromSelector(selector string) []string {
+func extractClassesFromSelector(selector string) []string {
 	var classes []string
 	seen := make(map[string]bool)
 
