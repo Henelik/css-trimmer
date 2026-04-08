@@ -9,6 +9,7 @@ var (
 	classAttrRegex    = regexp.MustCompile(`class="([^"]*)"`)
 	templClassesRegex = regexp.MustCompile(`templ\.Classes\(([^)]*)\)`)
 	identifierRegex   = regexp.MustCompile(`"([a-zA-Z0-9_-]+)"`)
+	stringRegex       = regexp.MustCompile(`"([^"]*)"`)
 )
 
 // ExtractTemplClasses scans a .templ file and returns found class names.
@@ -19,8 +20,7 @@ func ExtractTemplClasses(content string) []string {
 	// Pattern 1: class="foo bar baz"
 	for _, match := range classAttrRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
-			parts := strings.Fields(match[1])
-			for _, part := range parts {
+			for part := range strings.FieldsSeq(match[1]) {
 				if part != "" && !classSet[part] {
 					classes = append(classes, part)
 					classSet[part] = true
@@ -34,7 +34,6 @@ func ExtractTemplClasses(content string) []string {
 		if len(match) > 1 {
 			// Extract strings from the argument list
 			argContent := match[1]
-			stringRegex := regexp.MustCompile(`"([^"]*)"`)
 			for _, stringMatch := range stringRegex.FindAllStringSubmatch(argContent, -1) {
 				if len(stringMatch) > 1 {
 					className := stringMatch[1]

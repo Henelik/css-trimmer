@@ -31,8 +31,7 @@ func ExtractHTMLClasses(content io.Reader) ([]string, error) {
 			for _, a := range t.Attr {
 				if a.Key == "class" {
 					// Split on whitespace and add each class
-					parts := strings.Fields(a.Val)
-					for _, part := range parts {
+					for part := range strings.FieldsSeq(a.Val) {
 						if part != "" && !classSet[part] {
 							classes = append(classes, part)
 							classSet[part] = true
