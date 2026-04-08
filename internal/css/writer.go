@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+var classRegex = regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
+
+const removeSelector = "REMOVE_THIS_SELECTOR"
+
 // Write applies removals and writes to the specified output file.
 func Write(content string, toRemove []string, outputPath string, createBackup bool) error {
 	removeSet := make(map[string]struct{})
@@ -39,9 +43,8 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 	var inRule bool
 	var ruleBuffer []string
 	var braceDepth int
-	var i int
 
-	for i < len(lines) {
+	for i := range lines {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
@@ -59,7 +62,6 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 				ruleBuffer = []string{line}
 				inRule = true
 				braceDepth = 0
-				i++
 				continue
 			}
 		}
@@ -73,7 +75,6 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 				ruleBuffer = append(ruleBuffer, line)
 			}
 			braceDepth = openBraces - closeBraces
-			i++
 			continue
 		}
 
@@ -114,7 +115,6 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 
 			ruleBuffer = nil
 			braceDepth = 0
-			i++
 			continue
 		}
 
@@ -123,8 +123,6 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 			result.WriteString("\n")
 			result.WriteString(line)
 		}
-
-		i++
 	}
 
 	// Handle any incomplete rule at end
@@ -152,7 +150,6 @@ func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
 	selector := strings.TrimSpace(rule[:braceIdx])
 
 	// Extract classes from selector
-	classRegex := regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
 	matches := classRegex.FindAllStringSubmatch(selector, -1)
 
 	var selectorClasses []string
@@ -276,8 +273,8 @@ func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}
 				// Exiting parenthesis group - process the content
 				content := string(runes[parenStart : i+1])
 				filteredContent := filterPseudoFunctionContent(content, toRemove)
-				if filteredContent == "REMOVE_THIS_SELECTOR" {
-					return "REMOVE_THIS_SELECTOR"
+				if filteredContent == removeSelector {
+					return removeSelector
 				}
 				result.WriteString(filteredContent)
 			}
@@ -290,26 +287,23 @@ func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}
 // filterPseudoFunctionContent filters classes inside pseudo-function parentheses
 // It splits by commas (respecting nested parens), filters out removed classes, and rejoins
 func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) string {
-	// content is like "(.class1, .class2)"
 	if !strings.HasPrefix(content, "(") || !strings.HasSuffix(content, ")") {
 		return content
 	}
 
-	// Extract the inner content
 	inner := content[1 : len(content)-1]
-
-	// Split by top-level commas
 	parts := splitByCommaRespectingParens(inner)
 
-	var keptParts []string
+	var builder strings.Builder
+	first := true
+	builder.WriteString("(")
+
 	for _, part := range parts {
 		trimmed := strings.TrimSpace(part)
 		if trimmed == "" {
 			continue
 		}
 
-		// Check if this part contains any classes that should be removed
-		classRegex := regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
 		matches := classRegex.FindAllStringSubmatch(trimmed, -1)
 
 		shouldKeep := true
@@ -317,24 +311,30 @@ func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) s
 			if len(match) > 1 {
 				className := match[1]
 				if _, ok := toRemove[className]; ok {
-					// This part contains a class to be removed
 					shouldKeep = false
 					break
 				}
 			}
 		}
 
-		if shouldKeep && trimmed != "" {
-			keptParts = append(keptParts, part)
+		if !shouldKeep || trimmed == "" {
+			continue
 		}
+
+		if !first {
+			builder.WriteString(",")
+		}
+		first = false
+
+		builder.WriteString(part)
 	}
 
-	if len(keptParts) == 0 {
-		// If nothing remains in the pseudo-function, remove the entire selector
-		return "REMOVE_THIS_SELECTOR"
+	if first {
+		return removeSelector
 	}
 
-	return "(" + strings.Join(keptParts, ",") + ")"
+	builder.WriteString(")")
+	return builder.String()
 }
 
 // splitByCommaRespectingParens is like splitSelectorsRespectingParens but for content inside parens
@@ -373,7 +373,6 @@ func splitByCommaRespectingParens(content string) []string {
 // filterSelectorsFromRule removes individual selectors from a comma-separated list
 // if they contain classes that should be removed.
 func filterSelectorsFromRule(rule string, toRemove map[string]struct{}) string {
-	// Find the opening brace
 	braceIdx := strings.Index(rule, "{")
 	if braceIdx == -1 {
 		return rule
@@ -382,9 +381,9 @@ func filterSelectorsFromRule(rule string, toRemove map[string]struct{}) string {
 	selector := rule[:braceIdx]
 	body := rule[braceIdx:]
 
-	// Split selector by comma to get individual selectors, respecting parentheses
 	selectors := splitSelectorsRespectingParens(selector)
-	var keptSelectors []string
+	var builder strings.Builder
+	first := true
 
 	for _, sel := range selectors {
 		trimmedSel := strings.TrimSpace(sel)
@@ -392,74 +391,56 @@ func filterSelectorsFromRule(rule string, toRemove map[string]struct{}) string {
 			continue
 		}
 
-		// First, filter classes inside pseudo-functions like :not(), :is(), etc.
 		filteredSel := filterClassesInPseudoFunction(trimmedSel, toRemove)
-
-		// Check if the entire selector was marked for removal
-		if filteredSel == "REMOVE_THIS_SELECTOR" {
+		if filteredSel == removeSelector {
 			continue
 		}
 
-		// Extract classes from this individual selector (excluding those in pseudo-functions)
-		classRegex := regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
 		matches := classRegex.FindAllStringSubmatch(filteredSel, -1)
 
-		var selectorClasses []string
 		seen := make(map[string]bool)
+		hasKeepableClass := false
 		for _, match := range matches {
 			if len(match) > 1 {
 				className := match[1]
 				if !seen[className] {
-					selectorClasses = append(selectorClasses, className)
 					seen[className] = true
-				}
-			}
-		}
-
-		// Selector without classes, or selector with at least one class not in removal list
-		shouldKeep := false
-		if len(selectorClasses) == 0 {
-			// Non-class selectors (like div, p, :root, etc) should be kept
-			shouldKeep = true
-		} else {
-			// Check if at least one class should be kept
-			for _, className := range selectorClasses {
-				if _, ok := toRemove[className]; !ok {
-					shouldKeep = true
-					break
-				}
-			}
-		}
-
-		if shouldKeep {
-			// Preserve any leading/trailing whitespace from the original selector
-			// by using filteredSel but with original padding if they're the same after trimming
-			if trimmedSel == filteredSel {
-				// No changes were made, preserve original spacing
-				keptSelectors = append(keptSelectors, sel)
-			} else {
-				// Changes were made (classes filtered), preserve original leading spaces and use filtered content
-				// Calculate only leading whitespace, not trailing
-				leadingSpaceCount := 0
-				for _, ch := range sel {
-					if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-						leadingSpaceCount++
-					} else {
+					if _, ok := toRemove[className]; !ok {
+						hasKeepableClass = true
 						break
 					}
 				}
-				result := sel[:leadingSpaceCount] + filteredSel
-				keptSelectors = append(keptSelectors, result)
 			}
+		}
+
+		shouldKeep := len(matches) == 0 || hasKeepableClass
+		if !shouldKeep {
+			continue
+		}
+
+		if !first {
+			builder.WriteString(",")
+		}
+		first = false
+
+		if trimmedSel == filteredSel {
+			builder.WriteString(sel)
+		} else {
+			for _, ch := range sel {
+				if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+					builder.WriteRune(ch)
+				} else {
+					break
+				}
+			}
+			builder.WriteString(filteredSel)
 		}
 	}
 
-	// If no selectors remain, return empty string to remove the entire rule
-	if len(keptSelectors) == 0 {
+	if first {
 		return ""
 	}
 
-	// Reconstruct the rule with only kept selectors
-	newSelector := strings.Join(keptSelectors, ",")
-	return newSelector + body
+	builder.WriteString(body)
+	return builder.String()
 }
