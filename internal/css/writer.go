@@ -37,14 +37,16 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 }
 
 // removeUnusedRules processes the CSS and removes rules with classes in toRemove.
+// Blank lines after removed rules are skipped. Blank lines between kept rules are preserved.
 func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 	lines := strings.Split(content, "\n")
 	result := &strings.Builder{}
 	var inRule bool
 	var ruleBuffer []string
 	var braceDepth int
+	var lastWasRule bool
 
-	for i := range lines {
+	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
@@ -52,92 +54,86 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 		openBraces := strings.Count(line, "{")
 		closeBraces := strings.Count(line, "}")
 
-		// If we have a line with content and we're not in a rule, check if it could start one
-		if !inRule && trimmed != "" && !strings.HasPrefix(trimmed, "/*") {
-			// Look ahead to find if there's an opening brace coming up (for multi-line selectors)
-			// Start buffering this line as a potential selector
-			if !strings.Contains(trimmed, "{") && !strings.Contains(trimmed, "}") {
-				// This line doesn't have braces, but might be a selector line
-				// Buffer it and continue to the next line
-				ruleBuffer = []string{line}
+		// Detect start of a rule
+		if !inRule && !strings.HasPrefix(trimmed, "/*") && trimmed != "" {
+			if openBraces > 0 {
 				inRule = true
+				ruleBuffer = []string{line}
+				braceDepth = openBraces - closeBraces
+				continue
+			}
+			// Multi-line selector: line without brace but could be start
+			if !strings.Contains(trimmed, "{") && !strings.Contains(trimmed, "}") {
+				inRule = true
+				ruleBuffer = []string{line}
 				braceDepth = 0
 				continue
 			}
 		}
 
-		// Check for rule start - opening brace without closing
-		if openBraces > 0 && !strings.HasPrefix(trimmed, "/*") && !inRule {
-			inRule = true
-			if len(ruleBuffer) == 0 {
-				ruleBuffer = []string{line}
-			} else {
-				ruleBuffer = append(ruleBuffer, line)
-			}
-			braceDepth = openBraces - closeBraces
-			continue
-		}
-
-		// Update brace depth if already in a rule
+		// Accumulate lines if in a rule
 		if inRule {
-			if len(ruleBuffer) == 0 {
-				ruleBuffer = []string{line}
-			} else {
-				ruleBuffer = append(ruleBuffer, line)
-			}
+			ruleBuffer = append(ruleBuffer, line)
 			braceDepth += openBraces - closeBraces
-		}
 
-		// Check for rule end (returning to depth 0)
-		if braceDepth <= 0 && closeBraces > 0 && inRule && len(ruleBuffer) > 0 {
-			inRule = false
+			// Rule ends when braceDepth returns to 0 or below
+			if braceDepth <= 0 && closeBraces > 0 {
+				rule := strings.Join(ruleBuffer, "\n")
+				inRule = false
+				ruleBuffer = nil
+				braceDepth = 0
 
-			// Complete rule buffer - decide whether to keep it
-			rule := strings.Join(ruleBuffer, "\n")
-			if shouldKeepRule(rule, toRemove) {
-				// Process the rule to filter out selectors that should be removed
-				filteredRule := filterSelectorsFromRule(rule, toRemove)
-				if filteredRule != "" {
-					result.WriteString("\n")
-					result.WriteString(filteredRule)
+				if shouldKeepRule(rule, toRemove) {
+					filteredRule := filterSelectorsFromRule(rule, toRemove)
+					if filteredRule != "" {
+						// Add separator if needed
+						if result.Len() > 0 {
+							result.WriteString("\n")
+						}
+						result.WriteString(filteredRule)
+						lastWasRule = true
+					}
+				} else {
+					// Rule removed: skip subsequent blank lines
+					for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "" {
+						i++
+					}
 				}
-			} else {
-				// Look ahead to skip blank lines after the removed rule
-				nextIdx := i + 1
-				for nextIdx < len(lines) && strings.TrimSpace(lines[nextIdx]) == "" {
-					nextIdx++
-				}
-				// If there was at least one blank line after the removed rule, skip it
-				if nextIdx > i+1 {
-					i = nextIdx - 1 // -1 because we'll increment at the end of the loop
-				}
+				continue
 			}
-
-			ruleBuffer = nil
-			braceDepth = 0
 			continue
 		}
 
-		// If not in rule and reached here, add line to result
-		if !inRule {
+		// Not in a rule - handle comments and blank lines
+		if trimmed == "" {
+			// Blank line: only write if we have content and not after a removed rule
+			if result.Len() > 0 && lastWasRule {
+				result.WriteString("\n")
+			}
+		} else if strings.HasPrefix(trimmed, "/*") {
+			// Comment: add separator if needed
+			if result.Len() > 0 {
+				result.WriteString("\n")
+			}
+			result.WriteString(line)
+			lastWasRule = false
+		}
+	}
+
+	// Handle incomplete rule at end (malformed CSS) - write out as-is
+	if len(ruleBuffer) > 0 {
+		if result.Len() > 0 {
 			result.WriteString("\n")
+		}
+		for i, line := range ruleBuffer {
+			if i > 0 {
+				result.WriteString("\n")
+			}
 			result.WriteString(line)
 		}
 	}
 
-	// Handle any incomplete rule at end
-	if len(ruleBuffer) > 0 {
-		writeStrings(result, ruleBuffer, "\n")
-	}
-
 	return result.String()
-}
-
-func writeStrings(buf *strings.Builder, vals []string, separator string) {
-	for _, val := range vals {
-		buf.WriteString(separator)
-		buf.WriteString(val)
-	}
 }
 
 // shouldKeepRule determines if a CSS rule should be kept.

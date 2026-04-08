@@ -598,7 +598,7 @@ func TestWriter_EdgeCases(t *testing.T) {
 	t.Run("handles empty content", func(t *testing.T) {
 		result := removeUnusedRules("", toRemoveSet([]string{"test"}))
 
-		assert.Equal(t, "\n", result)
+		assert.Equal(t, "", result)
 	})
 
 	t.Run("handles class names with special characters", func(t *testing.T) {
@@ -695,29 +695,29 @@ func TestWriter_BlankLineRemoval(t *testing.T) {
 		assert.Contains(t, firstNonEmpty, ".keep")
 	})
 
-	// 	t.Run("removes multiple blank lines after removed rule", func(t *testing.T) {
-	// 		content := `.remove {
-	//   color: red;
-	// }
+	t.Run("removes multiple blank lines after removed rule", func(t *testing.T) {
+		content := `.remove {
+	  color: red;
+	}
 
-	// .keep {
-	//   color: blue;
-	// }`
-	// 		result := removeUnusedRules(content, toRemoveSet([]string{"remove"}))
+	.keep {
+	  color: blue;
+	}`
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove"}))
 
-	// 		assert.NotContains(t, result, ".remove")
-	// 		assert.Contains(t, result, ".keep")
-	// 		lines := strings.Split(result, "\n")
-	// 		blankCount := 0
-	// 		for _, line := range lines {
-	// 			if strings.TrimSpace(line) == "" {
-	// 				blankCount++
-	// 			} else {
-	// 				break
-	// 			}
-	// 		}
-	// 		assert.Equal(t, 0, blankCount)
-	// 	})
+		assert.NotContains(t, result, ".remove")
+		assert.Contains(t, result, ".keep")
+		lines := strings.Split(result, "\n")
+		blankCount := 0
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				blankCount++
+			} else {
+				break
+			}
+		}
+		assert.Equal(t, 0, blankCount)
+	})
 
 	t.Run("preserves blank lines between kept rules", func(t *testing.T) {
 		content := `.keep1 {
