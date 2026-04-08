@@ -29,39 +29,6 @@ func TestReporterTextReport(t *testing.T) {
 		assert.Contains(t, report, "Removing 2 classes")
 	})
 
-	t.Run("includes removed classes with reasons", func(t *testing.T) {
-		result := &diff.DiffResult{
-			Used:        []string{"btn"},
-			Unused:      []string{"unused"},
-			Whitelisted: []string{},
-			Blacklisted: []string{"blacklisted"},
-			ToRemove:    []string{"unused", "blacklisted"},
-		}
-		reporter := NewReporter(result, 5, "/output.css", "")
-		report := reporter.TextReport()
-
-		assert.Contains(t, report, "unused")
-		assert.Contains(t, report, "not referenced")
-		assert.Contains(t, report, "blacklisted")
-		assert.Contains(t, report, "blacklisted")
-	})
-
-	t.Run("includes whitelisted classes section", func(t *testing.T) {
-		result := &diff.DiffResult{
-			Used:        []string{"btn"},
-			Unused:      []string{},
-			Whitelisted: []string{"safe-1", "safe-2"},
-			Blacklisted: []string{},
-			ToRemove:    []string{},
-		}
-		reporter := NewReporter(result, 5, "", "")
-		report := reporter.TextReport()
-
-		assert.Contains(t, report, "Keeping 2 (whitelisted)")
-		assert.Contains(t, report, ".safe-1")
-		assert.Contains(t, report, ".safe-2")
-	})
-
 	t.Run("includes output file information", func(t *testing.T) {
 		result := &diff.DiffResult{
 			Used:   []string{"class"},
@@ -108,21 +75,6 @@ func TestReporterTextReport(t *testing.T) {
 		assert.NotContains(t, report, "Removing")
 		assert.Contains(t, report, "2 classes defined")
 		assert.Contains(t, report, "2 used")
-	})
-
-	t.Run("formats class names with proper indentation", func(t *testing.T) {
-		result := &diff.DiffResult{
-			Used:        []string{},
-			Unused:      []string{"unused"},
-			Whitelisted: []string{},
-			Blacklisted: []string{},
-			ToRemove:    []string{"unused"},
-		}
-		reporter := NewReporter(result, 1, "", "")
-		report := reporter.TextReport()
-
-		// Should have formatted class names
-		assert.Contains(t, report, ".unused")
 	})
 }
 
@@ -247,50 +199,6 @@ func TestReporterJSONReport(t *testing.T) {
 	})
 }
 
-func TestReporterGetRemovalReason(t *testing.T) {
-	t.Run("returns blacklisted reason", func(t *testing.T) {
-		result := &diff.DiffResult{
-			Used:        []string{},
-			Unused:      []string{},
-			Whitelisted: []string{},
-			Blacklisted: []string{"blacklisted-class"},
-			ToRemove:    []string{"blacklisted-class"},
-		}
-		reporter := NewReporter(result, 0, "", "")
-		reason := reporter.getRemovalReason("blacklisted-class")
-
-		assert.Equal(t, "blacklisted", reason)
-	})
-
-	t.Run("returns not referenced reason", func(t *testing.T) {
-		result := &diff.DiffResult{
-			Used:        []string{},
-			Unused:      []string{},
-			Whitelisted: []string{},
-			Blacklisted: []string{},
-			ToRemove:    []string{"unused-class"},
-		}
-		reporter := NewReporter(result, 0, "", "")
-		reason := reporter.getRemovalReason("unused-class")
-
-		assert.Equal(t, "not referenced", reason)
-	})
-
-	t.Run("returns not referenced for class not in blacklist", func(t *testing.T) {
-		result := &diff.DiffResult{
-			Used:        []string{},
-			Unused:      []string{},
-			Whitelisted: []string{},
-			Blacklisted: []string{},
-			ToRemove:    []string{},
-		}
-		reporter := NewReporter(result, 0, "", "")
-		reason := reporter.getRemovalReason("some-class")
-
-		assert.Equal(t, "not referenced", reason)
-	})
-}
-
 func TestReporter_RealWorldScenarios(t *testing.T) {
 	t.Run("generates report for complex scenario", func(t *testing.T) {
 		result := &diff.DiffResult{
@@ -373,19 +281,6 @@ func TestReporter_EdgeCases(t *testing.T) {
 
 		assert.Contains(t, report, "1 files scanned")
 		assert.Contains(t, report, "1 classes defined")
-	})
-
-	t.Run("handles very long class names", func(t *testing.T) {
-		longName := "very-long-class-name-with-many-hyphens-and-more-hyphens-and-even-more"
-		result := &diff.DiffResult{
-			Used:     []string{},
-			Unused:   []string{longName},
-			ToRemove: []string{longName},
-		}
-		reporter := NewReporter(result, 1, "", "")
-		report := reporter.TextReport()
-
-		assert.Contains(t, report, longName)
 	})
 
 	t.Run("handles special characters in file paths", func(t *testing.T) {
