@@ -9,6 +9,11 @@ import (
 	"github.com/Henelik/css-trimmer/internal/config"
 )
 
+var (
+	classNameRegex = regexp.MustCompile(`className="([^"]*)"`)
+	classRegex     = regexp.MustCompile(`class="([^"]*)"`)
+)
+
 // Scanner walks a directory and extracts CSS class references.
 type Scanner struct {
 	config       *config.Config
@@ -99,7 +104,6 @@ func extractJSXClasses(content string) []string {
 	classSet := make(map[string]bool)
 
 	// Pattern: className="foo bar"
-	classNameRegex := regexp.MustCompile(`className="([^"]*)"`)
 	for _, match := range classNameRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
 			for part := range strings.FieldsSeq(match[1]) {
@@ -112,7 +116,6 @@ func extractJSXClasses(content string) []string {
 	}
 
 	// Pattern: class="foo bar" (sometimes JSX uses class too)
-	classRegex := regexp.MustCompile(`class="([^"]*)"`)
 	for _, match := range classRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
 			for part := range strings.FieldsSeq(match[1]) {

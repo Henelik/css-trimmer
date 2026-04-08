@@ -5,13 +5,18 @@ import (
 	"strings"
 )
 
+var (
+	classAttrRegex    = regexp.MustCompile(`class="([^"]*)"`)
+	templClassesRegex = regexp.MustCompile(`templ\.Classes\(([^)]*)\)`)
+	identifierRegex   = regexp.MustCompile(`"([a-zA-Z0-9_-]+)"`)
+)
+
 // ExtractTemplClasses scans a .templ file and returns found class names.
 func ExtractTemplClasses(content string) []string {
 	var classes []string
 	classSet := make(map[string]bool)
 
 	// Pattern 1: class="foo bar baz"
-	classAttrRegex := regexp.MustCompile(`class="([^"]*)"`)
 	for _, match := range classAttrRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
 			parts := strings.Fields(match[1])
@@ -25,7 +30,6 @@ func ExtractTemplClasses(content string) []string {
 	}
 
 	// Pattern 2: templ.Classes("foo", "bar")
-	templClassesRegex := regexp.MustCompile(`templ\.Classes\(([^)]*)\)`)
 	for _, match := range templClassesRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
 			// Extract strings from the argument list
@@ -45,7 +49,6 @@ func ExtractTemplClasses(content string) []string {
 
 	// Pattern 3: Fallback - scan for quoted identifiers that look like CSS classes
 	// This is conservative and marks them as potentially used
-	identifierRegex := regexp.MustCompile(`"([a-zA-Z0-9_-]+)"`)
 	for _, match := range identifierRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
 			className := match[1]

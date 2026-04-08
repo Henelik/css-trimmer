@@ -1,7 +1,6 @@
 package css
 
 import (
-	"regexp"
 	"strings"
 )
 
@@ -53,7 +52,6 @@ func extractClassesFromSelector(selector string) []string {
 	seen := make(map[string]bool)
 
 	// Regex to find .classname patterns
-	classRegex := regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
 	matches := classRegex.FindAllStringSubmatch(selector, -1)
 
 	for _, match := range matches {
