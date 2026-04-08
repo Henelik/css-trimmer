@@ -35,7 +35,7 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 // removeUnusedRules processes the CSS and removes rules with classes in toRemove.
 func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 	lines := strings.Split(content, "\n")
-	var result []string
+	result := &strings.Builder{}
 	var inRule bool
 	var ruleBuffer []string
 	var braceDepth int
@@ -94,15 +94,11 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 			// Complete rule buffer - decide whether to keep it
 			rule := strings.Join(ruleBuffer, "\n")
 			if shouldKeepRule(rule, toRemove) {
-				// If the rule has an ignore comment, keep it as-is
-				if strings.Contains(rule, "/* css-trimmer-ignore */") {
-					result = append(result, ruleBuffer...)
-				} else {
-					// Otherwise, process the rule to filter out selectors that should be removed
-					filteredRule := filterSelectorsFromRule(rule, toRemove)
-					if filteredRule != "" {
-						result = append(result, strings.Split(filteredRule, "\n")...)
-					}
+				// Process the rule to filter out selectors that should be removed
+				filteredRule := filterSelectorsFromRule(rule, toRemove)
+				if filteredRule != "" {
+					result.WriteString("\n")
+					result.WriteString(filteredRule)
 				}
 			} else {
 				// Look ahead to skip blank lines after the removed rule
@@ -124,7 +120,8 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 
 		// If not in rule and reached here, add line to result
 		if !inRule {
-			result = append(result, line)
+			result.WriteString("\n")
+			result.WriteString(line)
 		}
 
 		i++
@@ -132,18 +129,21 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 
 	// Handle any incomplete rule at end
 	if len(ruleBuffer) > 0 {
-		result = append(result, ruleBuffer...)
+		writeStrings(result, ruleBuffer, "\n")
 	}
 
-	return strings.Join(result, "\n")
+	return result.String()
+}
+
+func writeStrings(buf *strings.Builder, vals []string, separator string) {
+	for _, val := range vals {
+		buf.WriteString(separator)
+		buf.WriteString(val)
+	}
 }
 
 // shouldKeepRule determines if a CSS rule should be kept.
 func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
-	if strings.Contains(rule, "/* css-trimmer-ignore */") {
-		return true
-	}
-
 	braceIdx := strings.Index(rule, "{")
 	if braceIdx == -1 {
 		return true
