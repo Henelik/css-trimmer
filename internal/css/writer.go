@@ -2,6 +2,7 @@ package css
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -18,9 +19,20 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 		removeSet[className] = struct{}{}
 	}
 
-	result := removeUnusedRules(content, removeSet)
+	outputFile, err := os.Create(outputPath)
+	if err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+	defer outputFile.Close()
 
-	// Create backup if needed
+	if err := streamRemoveUnusedRules(outputFile, content, removeSet); err != nil {
+		return fmt.Errorf("failed to write output: %w", err)
+	}
+
+	if err := outputFile.Close(); err != nil {
+		return fmt.Errorf("failed to close output file: %w", err)
+	}
+
 	if createBackup && outputPath != "" {
 		backupPath := outputPath + ".bak"
 		if err := os.WriteFile(backupPath, []byte(content), 0644); err != nil {
@@ -28,33 +40,26 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 		}
 	}
 
-	// Write result
-	if err := os.WriteFile(outputPath, []byte(result), 0644); err != nil {
-		return fmt.Errorf("failed to write output file: %w", err)
-	}
-
 	return nil
 }
 
-// removeUnusedRules processes the CSS and removes rules with classes in toRemove.
-// Blank lines after removed rules are skipped. Blank lines between kept rules are preserved.
-func removeUnusedRules(content string, toRemove map[string]struct{}) string {
+// streamRemoveUnusedRules processes the CSS and removes rules with classes in toRemove,
+// writing directly to w. Blank lines after removed rules are skipped.
+func streamRemoveUnusedRules(w io.Writer, content string, toRemove map[string]struct{}) error {
 	lines := strings.Split(content, "\n")
-	result := &strings.Builder{}
 	var inRule bool
 	var ruleBuffer []string
 	var braceDepth int
 	var lastWasRule bool
+	var prevWasRule bool
 
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
-		// Count braces in this line
 		openBraces := strings.Count(line, "{")
 		closeBraces := strings.Count(line, "}")
 
-		// Detect start of a rule
 		if !inRule && !strings.HasPrefix(trimmed, "/*") && trimmed != "" {
 			if openBraces > 0 {
 				inRule = true
@@ -62,7 +67,6 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 				braceDepth = openBraces - closeBraces
 				continue
 			}
-			// Multi-line selector: line without brace but could be start
 			if !strings.Contains(trimmed, "{") && !strings.Contains(trimmed, "}") {
 				inRule = true
 				ruleBuffer = []string{line}
@@ -71,12 +75,10 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 			}
 		}
 
-		// Accumulate lines if in a rule
 		if inRule {
 			ruleBuffer = append(ruleBuffer, line)
 			braceDepth += openBraces - closeBraces
 
-			// Rule ends when braceDepth returns to 0 or below
 			if braceDepth <= 0 && closeBraces > 0 {
 				rule := strings.Join(ruleBuffer, "\n")
 				inRule = false
@@ -84,17 +86,12 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 				braceDepth = 0
 
 				if shouldKeepRule(rule, toRemove) {
-					filteredRule := filterSelectorsFromRule(rule, toRemove)
-					if filteredRule != "" {
-						// Add separator if needed
-						if result.Len() > 0 {
-							result.WriteString("\n")
-						}
-						result.WriteString(filteredRule)
-						lastWasRule = true
+					if err := filterSelectorsFromRule(w, rule, toRemove); err != nil {
+						return err
 					}
+					lastWasRule = true
+					prevWasRule = true
 				} else {
-					// Rule removed: skip subsequent blank lines
 					for i+1 < len(lines) && strings.TrimSpace(lines[i+1]) == "" {
 						i++
 					}
@@ -104,36 +101,41 @@ func removeUnusedRules(content string, toRemove map[string]struct{}) string {
 			continue
 		}
 
-		// Not in a rule - handle comments and blank lines
 		if trimmed == "" {
-			// Blank line: only write if we have content and not after a removed rule
-			if result.Len() > 0 && lastWasRule {
-				result.WriteString("\n")
+			if prevWasRule {
+				if _, err := fmt.Fprintln(w); err != nil {
+					return err
+				}
+				prevWasRule = false
 			}
 		} else if strings.HasPrefix(trimmed, "/*") {
-			// Comment: add separator if needed
-			if result.Len() > 0 {
-				result.WriteString("\n")
+			if lastWasRule || resultLen(w) > 0 {
+				if _, err := fmt.Fprint(w, "\n"); err != nil {
+					return err
+				}
 			}
-			result.WriteString(line)
+			if _, err := fmt.Fprintln(w, line); err != nil {
+				return err
+			}
 			lastWasRule = false
 		}
 	}
 
-	// Handle incomplete rule at end (malformed CSS) - write out as-is
 	if len(ruleBuffer) > 0 {
-		if result.Len() > 0 {
-			result.WriteString("\n")
-		}
-		for i, line := range ruleBuffer {
-			if i > 0 {
-				result.WriteString("\n")
-			}
-			result.WriteString(line)
+		rule := strings.Join(ruleBuffer, "\n")
+		if _, err := fmt.Fprint(w, "\n", rule); err != nil {
+			return err
 		}
 	}
 
-	return result.String()
+	return nil
+}
+
+func resultLen(w io.Writer) int {
+	if sb, ok := w.(*strings.Builder); ok {
+		return sb.Len()
+	}
+	return 0
 }
 
 // shouldKeepRule determines if a CSS rule should be kept.
@@ -145,7 +147,6 @@ func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
 
 	selector := strings.TrimSpace(rule[:braceIdx])
 
-	// Extract classes from selector
 	matches := classRegex.FindAllStringSubmatch(selector, -1)
 
 	var selectorClasses []string
@@ -160,48 +161,38 @@ func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
 		}
 	}
 
-	// If no classes in selector, also check for classes in the entire rule body
-	// (this handles nested rules in @media, @supports, etc)
 	if len(selectorClasses) == 0 {
-		// Look for any class selectors in the nested content
 		nestedMatches := classRegex.FindAllStringSubmatch(rule, -1)
 		if len(nestedMatches) == 0 {
-			// No classes anywhere in the rule, keep it
 			return true
 		}
 
-		// There are classes in nested content, check if ANY of them should be kept
 		seenNested := make(map[string]bool)
 		for _, match := range nestedMatches {
 			if len(match) > 1 {
 				className := match[1]
 				if !seenNested[className] {
 					seenNested[className] = true
-					// If we find a class that should NOT be removed, keep the entire rule
 					if _, ok := toRemove[className]; !ok {
 						return true
 					}
 				}
 			}
 		}
-		// All nested classes should be removed, so remove the rule
 		return false
 	}
 
-	// If all classes should be removed, remove the rule
-	// Otherwise keep it (at least one class should be kept)
 	for _, className := range selectorClasses {
 		if _, ok := toRemove[className]; !ok {
 			return true
 		}
 	}
 
-	// All classes in this selector should be removed
 	return false
 }
 
 // splitSelectorsRespectingParens splits a comma-separated selector list while
-// preserving parentheses boundaries. This prevents splitting inside :not(), :is(), etc.
+// preserving parentheses boundaries.
 func splitSelectorsRespectingParens(selector string) []string {
 	var result []string
 	var current strings.Builder
@@ -217,13 +208,11 @@ func splitSelectorsRespectingParens(selector string) []string {
 			current.WriteRune(ch)
 		case ',':
 			if parenDepth == 0 {
-				// This comma is a top-level separator
 				if current.Len() > 0 {
 					result = append(result, current.String())
 					current.Reset()
 				}
 			} else {
-				// This comma is inside parentheses, keep it
 				current.WriteRune(ch)
 			}
 		default:
@@ -231,7 +220,6 @@ func splitSelectorsRespectingParens(selector string) []string {
 		}
 	}
 
-	// Add the last selector
 	if current.Len() > 0 {
 		result = append(result, current.String())
 	}
@@ -240,13 +228,16 @@ func splitSelectorsRespectingParens(selector string) []string {
 }
 
 // filterClassesInPseudoFunction removes classes from inside pseudo-function parentheses
-// while preserving the pseudo-function structure. For example:
-// .item:not(.removed, .kept) becomes .item:not(.kept) if .removed is in toRemove
+// while preserving the pseudo-function structure.
 func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}) string {
 	var result strings.Builder
 	var parenDepth int
 	var parenStart int
+	var leadingSpace string
+	var foundNonSpace bool
+	var trailingSpace string
 	runes := []rune(selector)
+	pendingTrailing := ""
 
 	for i := range runes {
 		ch := runes[i]
@@ -254,19 +245,34 @@ func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}
 		if ch == '(' {
 			if parenDepth == 0 {
 				parenStart = i
+				if pendingTrailing != "" {
+					result.WriteString(pendingTrailing)
+					pendingTrailing = ""
+				}
 			}
 			parenDepth++
 		}
 
 		if parenDepth == 0 {
-			// Outside of any parentheses, just add the character
-			result.WriteRune(ch)
+			if foundNonSpace {
+				if ch == ' ' || ch == '\t' {
+					pendingTrailing += string(ch)
+				} else {
+					trailingSpace = pendingTrailing
+					pendingTrailing = ""
+					result.WriteRune(ch)
+				}
+			} else if ch == ' ' || ch == '\t' {
+				leadingSpace += string(ch)
+			} else {
+				result.WriteRune(ch)
+				foundNonSpace = true
+			}
 		}
 
 		if ch == ')' {
 			parenDepth--
 			if parenDepth == 0 {
-				// Exiting parenthesis group - process the content
 				content := string(runes[parenStart : i+1])
 				filteredContent := filterPseudoFunctionContent(content, toRemove)
 				if filteredContent == removeSelector {
@@ -277,11 +283,14 @@ func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}
 		}
 	}
 
-	return result.String()
+	if pendingTrailing != "" {
+		trailingSpace = pendingTrailing
+	}
+
+	return leadingSpace + result.String() + trailingSpace
 }
 
-// filterPseudoFunctionContent filters classes inside pseudo-function parentheses
-// It splits by commas (respecting nested parens), filters out removed classes, and rejoins
+// filterPseudoFunctionContent filters classes inside pseudo-function parentheses.
 func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) string {
 	if !strings.HasPrefix(content, "(") || !strings.HasSuffix(content, ")") {
 		return content
@@ -333,7 +342,7 @@ func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) s
 	return builder.String()
 }
 
-// splitByCommaRespectingParens is like splitSelectorsRespectingParens but for content inside parens
+// splitByCommaRespectingParens splits content by commas while respecting parentheses.
 func splitByCommaRespectingParens(content string) []string {
 	var result []string
 	var current strings.Builder
@@ -368,17 +377,17 @@ func splitByCommaRespectingParens(content string) []string {
 
 // filterSelectorsFromRule removes individual selectors from a comma-separated list
 // if they contain classes that should be removed.
-func filterSelectorsFromRule(rule string, toRemove map[string]struct{}) string {
+func filterSelectorsFromRule(w io.Writer, rule string, toRemove map[string]struct{}) error {
 	braceIdx := strings.Index(rule, "{")
 	if braceIdx == -1 {
-		return rule
+		_, err := fmt.Fprintln(w, rule)
+		return err
 	}
 
 	selector := rule[:braceIdx]
 	body := rule[braceIdx:]
 
 	selectors := splitSelectorsRespectingParens(selector)
-	var builder strings.Builder
 	first := true
 
 	for _, sel := range selectors {
@@ -387,12 +396,13 @@ func filterSelectorsFromRule(rule string, toRemove map[string]struct{}) string {
 			continue
 		}
 
-		filteredSel := filterClassesInPseudoFunction(trimmedSel, toRemove)
+		filteredSel := filterClassesInPseudoFunction(sel, toRemove)
 		if filteredSel == removeSelector {
 			continue
 		}
 
-		matches := classRegex.FindAllStringSubmatch(filteredSel, -1)
+		filteredTrimmed := strings.TrimSpace(filteredSel)
+		matches := classRegex.FindAllStringSubmatch(filteredTrimmed, -1)
 
 		seen := make(map[string]bool)
 		hasKeepableClass := false
@@ -415,28 +425,50 @@ func filterSelectorsFromRule(rule string, toRemove map[string]struct{}) string {
 		}
 
 		if !first {
-			builder.WriteString(",")
+			if _, err := fmt.Fprint(w, ","); err != nil {
+				return err
+			}
 		}
 		first = false
 
-		if trimmedSel == filteredSel {
-			builder.WriteString(sel)
-		} else {
-			for _, ch := range sel {
-				if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-					builder.WriteRune(ch)
-				} else {
-					break
-				}
+		if trimmedSel == filteredTrimmed {
+			if _, err := fmt.Fprint(w, sel); err != nil {
+				return err
 			}
-			builder.WriteString(filteredSel)
+		} else {
+			leadingSpace := getLeadingWhitespace(sel)
+			if _, err := fmt.Fprint(w, leadingSpace, filteredSel); err != nil {
+				return err
+			}
 		}
 	}
 
-	if first {
-		return ""
+	if !first {
+		if _, err := fmt.Fprint(w, body, "\n"); err != nil {
+			return err
+		}
 	}
 
-	builder.WriteString(body)
-	return builder.String()
+	return nil
+}
+
+func getLeadingWhitespace(s string) string {
+	i := 0
+	for i < len(s) {
+		ch := rune(s[i])
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
+			i++
+		} else {
+			break
+		}
+	}
+	return s[:i]
+}
+
+// removeUnusedRules is a convenience wrapper that calls streamRemoveUnusedRules
+// and returns the result as a string for backward compatibility.
+func removeUnusedRules(content string, toRemove map[string]struct{}) string {
+	var sb strings.Builder
+	streamRemoveUnusedRules(&sb, content, toRemove)
+	return sb.String()
 }
