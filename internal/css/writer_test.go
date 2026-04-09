@@ -871,3 +871,77 @@ func BenchmarkRemoveUnusedRules(b *testing.B) {
 		removeUnusedRules(content, toRemoveSet(toRemove))
 	}
 }
+
+func TestWriter_MultilineSelectorFormatting(t *testing.T) {
+	t.Run("preserves newlines in multiline selectors", func(t *testing.T) {
+		content := `.theme-terminal-truth .input,
+.theme-terminal-truth .textarea,
+.theme-terminal-truth .select select {
+  border: none;
+}`
+		result := removeUnusedRules(content, toRemoveSet([]string{}))
+
+		assert.Contains(t, result, ".theme-terminal-truth .input,")
+		assert.Contains(t, result, "\n.theme-terminal-truth .textarea,")
+		assert.Contains(t, result, "\n.theme-terminal-truth .select select")
+		assert.Contains(t, result, ".theme-terminal-truth .input,\n.theme-terminal-truth .textarea")
+	})
+
+	t.Run("preserves spaces between class selectors", func(t *testing.T) {
+		content := `.theme-terminal-truth .input,
+.theme-terminal-truth .textarea,
+.theme-terminal-truth .select select {
+  border: none;
+}`
+		result := removeUnusedRules(content, toRemoveSet([]string{}))
+
+		assert.Contains(t, result, ".theme-terminal-truth .input")
+		assert.Contains(t, result, ".theme-terminal-truth .textarea")
+		assert.Contains(t, result, ".theme-terminal-truth .select select")
+	})
+
+	t.Run("removes class from multiline selector while preserving format", func(t *testing.T) {
+		content := `.keep-class,
+.remove-class,
+.another-keep {
+  border: none;
+}`
+		result := removeUnusedRules(content, toRemoveSet([]string{"remove-class"}))
+
+		assert.NotContains(t, result, ".remove-class")
+		assert.Contains(t, result, ".keep-class")
+		assert.Contains(t, result, ".another-keep")
+	})
+
+	t.Run("handles mixed single-line and multiline selectors", func(t *testing.T) {
+		content := `.button, .link {
+  color: blue;
+}`
+		result := removeUnusedRules(content, toRemoveSet([]string{}))
+
+		assert.Contains(t, result, ".button, .link")
+	})
+
+	t.Run("preserves whitespace after pseudo-function parentheses", func(t *testing.T) {
+		content := `.navbar-dropdown 
+.navbar-item:not(.is-active) {
+  background-color: #fff;
+}`
+		result := removeUnusedRules(content, toRemoveSet([]string{}))
+
+		assert.Contains(t, result, ".navbar-item:not(.is-active)")
+		assert.Contains(t, result, "\n.navbar-item")
+	})
+
+	t.Run("removes class from :not() and preserves rest of selector", func(t *testing.T) {
+		content := `.navbar-dropdown 
+.navbar-item:not(.is-active, .is-selected) {
+  background-color: #fff;
+}`
+		result := removeUnusedRules(content, toRemoveSet([]string{"is-selected"}))
+
+		assert.Contains(t, result, ".navbar-item:not(.is-active)")
+		assert.NotContains(t, result, ".is-selected")
+		assert.Contains(t, result, "\n.navbar-item")
+	})
+}

@@ -10,7 +10,9 @@ import (
 
 var classRegex = regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
 
-const removeSelector = "REMOVE_THIS_SELECTOR"
+const (
+	removeSelector = "REMOVE_THIS_SELECTOR"
+)
 
 // Write applies removals and writes to the specified output file.
 func Write(content string, toRemove []string, outputPath string, createBackup bool) error {
@@ -110,7 +112,7 @@ func streamRemoveUnusedRules(w io.Writer, content string, toRemove map[string]st
 			}
 		} else if strings.HasPrefix(trimmed, "/*") {
 			if lastWasRule || resultLen(w) > 0 {
-				if _, err := fmt.Fprint(w, "\n"); err != nil {
+				if _, err := w.Write([]byte("\n")); err != nil {
 					return err
 				}
 			}
@@ -122,9 +124,14 @@ func streamRemoveUnusedRules(w io.Writer, content string, toRemove map[string]st
 	}
 
 	if len(ruleBuffer) > 0 {
-		rule := strings.Join(ruleBuffer, "\n")
-		if _, err := fmt.Fprint(w, "\n", rule); err != nil {
-			return err
+		for _, rule := range ruleBuffer {
+			if _, err := w.Write([]byte("\n")); err != nil {
+				return err
+			}
+
+			if _, err := w.Write([]byte(rule)); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -140,14 +147,12 @@ func resultLen(w io.Writer) int {
 
 // shouldKeepRule determines if a CSS rule should be kept.
 func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
-	braceIdx := strings.Index(rule, "{")
-	if braceIdx == -1 {
+	before, _, ok := strings.Cut(rule, "{")
+	if !ok {
 		return true
 	}
 
-	selector := strings.TrimSpace(rule[:braceIdx])
-
-	matches := classRegex.FindAllStringSubmatch(selector, -1)
+	matches := classRegex.FindAllStringSubmatch(strings.TrimSpace(before), -1)
 
 	var selectorClasses []string
 	seen := make(map[string]bool)
@@ -231,13 +236,11 @@ func splitSelectorsRespectingParens(selector string) []string {
 // while preserving the pseudo-function structure.
 func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}) string {
 	var result strings.Builder
+	var pendingTrailing strings.Builder
 	var parenDepth int
 	var parenStart int
-	var leadingSpace string
 	var foundNonSpace bool
-	var trailingSpace string
 	runes := []rune(selector)
-	pendingTrailing := ""
 
 	for i := range runes {
 		ch := runes[i]
@@ -245,9 +248,9 @@ func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}
 		if ch == '(' {
 			if parenDepth == 0 {
 				parenStart = i
-				if pendingTrailing != "" {
-					result.WriteString(pendingTrailing)
-					pendingTrailing = ""
+				if pendingTrailing.Len() != 0 {
+					result.WriteString(pendingTrailing.String())
+					pendingTrailing.Reset()
 				}
 			}
 			parenDepth++
@@ -256,14 +259,12 @@ func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}
 		if parenDepth == 0 {
 			if foundNonSpace {
 				if ch == ' ' || ch == '\t' {
-					pendingTrailing += string(ch)
+					pendingTrailing.WriteRune(ch)
 				} else {
-					trailingSpace = pendingTrailing
-					pendingTrailing = ""
+					result.WriteString(pendingTrailing.String())
+					pendingTrailing.Reset()
 					result.WriteRune(ch)
 				}
-			} else if ch == ' ' || ch == '\t' {
-				leadingSpace += string(ch)
 			} else {
 				result.WriteRune(ch)
 				foundNonSpace = true
@@ -283,19 +284,11 @@ func filterClassesInPseudoFunction(selector string, toRemove map[string]struct{}
 		}
 	}
 
-	if pendingTrailing != "" {
-		trailingSpace = pendingTrailing
-	}
-
-	return leadingSpace + result.String() + trailingSpace
+	return result.String()
 }
 
 // filterPseudoFunctionContent filters classes inside pseudo-function parentheses.
 func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) string {
-	if !strings.HasPrefix(content, "(") || !strings.HasSuffix(content, ")") {
-		return content
-	}
-
 	inner := content[1 : len(content)-1]
 	parts := splitByCommaRespectingParens(inner)
 
@@ -380,7 +373,7 @@ func splitByCommaRespectingParens(content string) []string {
 func filterSelectorsFromRule(w io.Writer, rule string, toRemove map[string]struct{}) error {
 	braceIdx := strings.Index(rule, "{")
 	if braceIdx == -1 {
-		_, err := fmt.Fprintln(w, rule)
+		_, err := w.Write([]byte(rule))
 		return err
 	}
 
@@ -425,19 +418,18 @@ func filterSelectorsFromRule(w io.Writer, rule string, toRemove map[string]struc
 		}
 
 		if !first {
-			if _, err := fmt.Fprint(w, ","); err != nil {
+			if _, err := w.Write([]byte(",")); err != nil {
 				return err
 			}
 		}
 		first = false
 
 		if trimmedSel == filteredTrimmed {
-			if _, err := fmt.Fprint(w, sel); err != nil {
+			if _, err := w.Write([]byte(sel)); err != nil {
 				return err
 			}
 		} else {
-			leadingSpace := getLeadingWhitespace(sel)
-			if _, err := fmt.Fprint(w, leadingSpace, filteredSel); err != nil {
+			if _, err := w.Write([]byte(filteredSel)); err != nil {
 				return err
 			}
 		}
@@ -450,19 +442,6 @@ func filterSelectorsFromRule(w io.Writer, rule string, toRemove map[string]struc
 	}
 
 	return nil
-}
-
-func getLeadingWhitespace(s string) string {
-	i := 0
-	for i < len(s) {
-		ch := rune(s[i])
-		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' {
-			i++
-		} else {
-			break
-		}
-	}
-	return s[:i]
 }
 
 // removeUnusedRules is a convenience wrapper that calls streamRemoveUnusedRules
