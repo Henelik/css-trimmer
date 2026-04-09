@@ -1,7 +1,6 @@
 # css-trimmer
 
 [![Test, Build & Release](https://github.com/Henelik/css-trimmer/actions/workflows/release.yaml/badge.svg)](https://github.com/Henelik/css-trimmer/actions/workflows/release.yaml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/Henelik/css-trimmer.svg)](https://pkg.go.dev/github.com/Henelik/css-trimmer)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Henelik/css-trimmer)](https://goreportcard.com/report/github.com/Henelik/css-trimmer)
 [![License: MIT NON-AI](https://img.shields.io/badge/License-MIT%20NON--AI-blue.svg)](LICENSE)
 
