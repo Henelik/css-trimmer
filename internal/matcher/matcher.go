@@ -10,7 +10,7 @@ func FindSubMatches(prefix, postfix, content string) []string {
 
 	start := 0
 	for {
-		// Find next class=" occurrence
+		// Find next prefix occurrence
 		idx := strings.Index(content[start:], prefix)
 		if idx == -1 {
 			break
@@ -25,7 +25,7 @@ func FindSubMatches(prefix, postfix, content string) []string {
 			break
 		}
 
-		// Extract the class value
+		// Extract the substring
 		result = append(result, content[idx:idx+endIdx])
 
 		// Continue searching after this match
@@ -43,7 +43,7 @@ func MatchCSSClassDefinition(content string) []string {
 
 	start := 0
 	for {
-		// Find next class=" occurrence
+		// Find next class definition
 		idx := strings.IndexByte(content[start:], '.')
 		if idx == -1 {
 			break
@@ -52,7 +52,7 @@ func MatchCSSClassDefinition(content string) []string {
 		// Convert relative index to absolute after prefix
 		idx += start + 1
 
-		// Find the next space
+		// Find the end of the definition
 		endIdx := strings.IndexAny(content[idx:], " .,:")
 		if endIdx == -1 {
 			break
