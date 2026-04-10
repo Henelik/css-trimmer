@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/Henelik/css-trimmer/internal/config"
 )
@@ -33,69 +34,95 @@ func NewScanner(cfg *config.Config) *Scanner {
 
 // Scan walks the src directory and collects all class references.
 func (s *Scanner) Scan(srcDir string) ([]string, int, error) {
-	if err := filepath.Walk(srcDir, s.visitFile); err != nil {
+	if _, err := os.Stat(srcDir); err != nil {
+		if os.IsNotExist(err) {
+			return s.classes, s.filesScanned, nil
+		}
 		return nil, 0, err
+	}
+
+	var files []string
+
+	err := filepath.Walk(srcDir, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		if !s.config.IsExtensionIncluded(path) {
+			return nil
+		}
+
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	errCh := make(chan error, len(files))
+
+	for _, path := range files {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
+
+			classes, err := s.extractFileClasses(path)
+			if err != nil {
+				errCh <- err
+				return
+			}
+
+			mu.Lock()
+			s.filesScanned++
+			for _, className := range classes {
+				if className != "" && !s.classSet[className] {
+					s.classes = append(s.classes, className)
+					s.classSet[className] = true
+				}
+			}
+			mu.Unlock()
+		}(path)
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			return nil, 0, err
+		}
 	}
 
 	return s.classes, s.filesScanned, nil
 }
 
-// visitFile is called for each file in the directory walk.
-func (s *Scanner) visitFile(path string, info os.FileInfo, err error) error {
-	if err != nil {
-		return nil // Skip files with errors
-	}
-
-	if info.IsDir() {
-		return nil
-	}
-
-	// Check if file extension should be scanned
-	if !s.config.IsExtensionIncluded(path) {
-		return nil
-	}
-
-	s.filesScanned++
-
-	// Read file content
+func (s *Scanner) extractFileClasses(path string) ([]string, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil // Skip unreadable files
+		return nil, err
 	}
 
 	ext := filepath.Ext(path)
-	var classes []string
-
 	switch ext {
 	case ".html":
 		htmlClasses, err := ExtractHTMLClasses(strings.NewReader(string(content)))
 		if err != nil {
-			return nil
+			return nil, nil
 		}
-		classes = htmlClasses
-
+		return htmlClasses, nil
 	case ".templ":
-		classes = ExtractTemplClasses(string(content))
-
+		return ExtractTemplClasses(string(content)), nil
 	case ".jsx", ".tsx":
-		// For JSX/TSX, use HTML-like extraction (class attribute patterns)
-		// But also support className strings
-		text := string(content)
-		classes = extractJSXClasses(text)
-
+		return extractJSXClasses(string(content)), nil
 	default:
-		return nil
+		return nil, nil
 	}
-
-	// Add classes to set, avoiding duplicates
-	for _, className := range classes {
-		if className != "" && !s.classSet[className] {
-			s.classes = append(s.classes, className)
-			s.classSet[className] = true
-		}
-	}
-
-	return nil
 }
 
 // extractJSXClasses extracts classes from JSX/TSX content.
