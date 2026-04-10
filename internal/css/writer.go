@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"strings"
-)
 
-var classRegex = regexp.MustCompile(`\.([a-zA-Z0-9_-]+)`)
+	"github.com/Henelik/css-trimmer/internal/matcher"
+)
 
 const (
 	removeSelector = "REMOVE_THIS_SELECTOR"
@@ -152,35 +151,29 @@ func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
 		return true
 	}
 
-	matches := classRegex.FindAllStringSubmatch(strings.TrimSpace(before), -1)
+	matches := matcher.MatchCSSClassDefinition(before)
 
 	var selectorClasses []string
 	seen := make(map[string]bool)
 	for _, match := range matches {
-		if len(match) > 1 {
-			className := match[1]
-			if !seen[className] {
-				selectorClasses = append(selectorClasses, className)
-				seen[className] = true
-			}
+		if !seen[match] {
+			selectorClasses = append(selectorClasses, match)
+			seen[match] = true
 		}
 	}
 
 	if len(selectorClasses) == 0 {
-		nestedMatches := classRegex.FindAllStringSubmatch(rule, -1)
+		nestedMatches := matcher.MatchCSSClassDefinition(rule)
 		if len(nestedMatches) == 0 {
 			return true
 		}
 
 		seenNested := make(map[string]bool)
 		for _, match := range nestedMatches {
-			if len(match) > 1 {
-				className := match[1]
-				if !seenNested[className] {
-					seenNested[className] = true
-					if _, ok := toRemove[className]; !ok {
-						return true
-					}
+			if !seenNested[match] {
+				seenNested[match] = true
+				if _, ok := toRemove[match]; !ok {
+					return true
 				}
 			}
 		}
@@ -302,16 +295,13 @@ func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) s
 			continue
 		}
 
-		matches := classRegex.FindAllStringSubmatch(trimmed, -1)
+		matches := matcher.MatchCSSClassDefinition(trimmed)
 
 		shouldKeep := true
 		for _, match := range matches {
-			if len(match) > 1 {
-				className := match[1]
-				if _, ok := toRemove[className]; ok {
-					shouldKeep = false
-					break
-				}
+			if _, ok := toRemove[match]; ok {
+				shouldKeep = false
+				break
 			}
 		}
 
@@ -395,19 +385,16 @@ func filterSelectorsFromRule(w io.Writer, rule string, toRemove map[string]struc
 		}
 
 		filteredTrimmed := strings.TrimSpace(filteredSel)
-		matches := classRegex.FindAllStringSubmatch(filteredTrimmed, -1)
+		matches := matcher.MatchCSSClassDefinition(filteredTrimmed)
 
 		seen := make(map[string]bool)
 		hasKeepableClass := false
 		for _, match := range matches {
-			if len(match) > 1 {
-				className := match[1]
-				if !seen[className] {
-					seen[className] = true
-					if _, ok := toRemove[className]; !ok {
-						hasKeepableClass = true
-						break
-					}
+			if !seen[match] {
+				seen[match] = true
+				if _, ok := toRemove[match]; !ok {
+					hasKeepableClass = true
+					break
 				}
 			}
 		}

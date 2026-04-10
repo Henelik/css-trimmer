@@ -367,6 +367,7 @@ func BenchmarkExtractTemplClasses(b *testing.B) {
 	<div class="control">
 		<input class="input" type="email" name="email" placeholder="your@email.com" required/>
 	</div>
+	templ.Classes("meow_mix", "doggy_dinner")
 </div>
 <div class="field">
 	<label class="label">Company</label>

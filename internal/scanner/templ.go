@@ -3,13 +3,13 @@ package scanner
 import (
 	"regexp"
 	"strings"
+
+	"github.com/Henelik/css-trimmer/internal/matcher"
 )
 
 var (
-	templClassesRegex = regexp.MustCompile(`templ\.Classes\(([^)]*)\)`)
-	identifierRegex   = regexp.MustCompile(`"([a-zA-Z0-9_-]+)"`)
-	stringRegex       = regexp.MustCompile(`"([^"]*)"`)
-	commonWords       = map[string]struct{}{
+	identifierRegex = regexp.MustCompile(`"([a-zA-Z0-9_-]+)"`)
+	commonWords     = map[string]struct{}{
 		"the": {}, "and": {}, "or": {}, "for": {}, "is": {}, "in": {}, "of": {},
 		"to": {}, "a": {}, "an": {}, "on": {}, "at": {}, "by": {}, "it": {},
 	}
@@ -21,7 +21,7 @@ func ExtractTemplClasses(content string) []string {
 	classSet := make(map[string]struct{})
 
 	// Pattern 1: class="foo bar baz"
-	for _, match := range findClassMatch(content) {
+	for _, match := range matcher.FindSubMatches(`class="`, `"`, content) {
 		for part := range strings.FieldsSeq(match) {
 			if part != "" {
 				if _, ok := classSet[part]; !ok {
@@ -33,19 +33,13 @@ func ExtractTemplClasses(content string) []string {
 	}
 
 	// Pattern 2: templ.Classes("foo", "bar")
-	for _, match := range templClassesRegex.FindAllStringSubmatch(content, -1) {
-		if len(match) > 1 {
-			// Extract strings from the argument list
-			argContent := match[1]
-			for _, stringMatch := range stringRegex.FindAllStringSubmatch(argContent, -1) {
-				if len(stringMatch) > 1 {
-					className := stringMatch[1]
-					if className != "" {
-						if _, ok := classSet[className]; !ok {
-							classes = append(classes, className)
-							classSet[className] = struct{}{}
-						}
-					}
+	for _, match := range matcher.FindSubMatches(`templ.Classes(`, ")", content) {
+		// Extract strings from the argument list
+		for _, className := range matcher.FindSubMatches(`"`, `"`, match) {
+			if className != "" {
+				if _, ok := classSet[className]; !ok {
+					classes = append(classes, className)
+					classSet[className] = struct{}{}
 				}
 			}
 		}

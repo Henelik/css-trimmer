@@ -2,6 +2,8 @@ package css
 
 import (
 	"strings"
+
+	"github.com/Henelik/css-trimmer/internal/matcher"
 )
 
 // Parse analyzes the CSS and builds a class inventory of defined classes.
@@ -49,18 +51,15 @@ func ParseCSS(content string) (ClassInventory, error) {
 // extractClassesFromSelector finds all class names in a CSS selector.
 func extractClassesFromSelector(selector string) []string {
 	var classes []string
-	seen := make(map[string]bool)
+	seen := make(map[string]struct{})
 
 	// Regex to find .classname patterns
-	matches := classRegex.FindAllStringSubmatch(selector, -1)
+	matches := matcher.MatchCSSClassDefinition(selector)
 
 	for _, match := range matches {
-		if len(match) > 1 {
-			className := match[1]
-			if !seen[className] {
-				classes = append(classes, className)
-				seen[className] = true
-			}
+		if _, ok := seen[match]; !ok {
+			classes = append(classes, match)
+			seen[match] = struct{}{}
 		}
 	}
 
