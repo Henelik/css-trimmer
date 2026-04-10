@@ -10,20 +10,26 @@ var (
 	templClassesRegex = regexp.MustCompile(`templ\.Classes\(([^)]*)\)`)
 	identifierRegex   = regexp.MustCompile(`"([a-zA-Z0-9_-]+)"`)
 	stringRegex       = regexp.MustCompile(`"([^"]*)"`)
+	commonWords       = map[string]struct{}{
+		"the": {}, "and": {}, "or": {}, "for": {}, "is": {}, "in": {}, "of": {},
+		"to": {}, "a": {}, "an": {}, "on": {}, "at": {}, "by": {}, "it": {},
+	}
 )
 
 // ExtractTemplClasses scans a .templ file and returns found class names.
 func ExtractTemplClasses(content string) []string {
 	var classes []string
-	classSet := make(map[string]bool)
+	classSet := make(map[string]struct{})
 
 	// Pattern 1: class="foo bar baz"
 	for _, match := range classAttrRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
 			for part := range strings.FieldsSeq(match[1]) {
-				if part != "" && !classSet[part] {
-					classes = append(classes, part)
-					classSet[part] = true
+				if part != "" {
+					if _, ok := classSet[part]; !ok {
+						classes = append(classes, part)
+						classSet[part] = struct{}{}
+					}
 				}
 			}
 		}
@@ -37,9 +43,11 @@ func ExtractTemplClasses(content string) []string {
 			for _, stringMatch := range stringRegex.FindAllStringSubmatch(argContent, -1) {
 				if len(stringMatch) > 1 {
 					className := stringMatch[1]
-					if className != "" && !classSet[className] {
-						classes = append(classes, className)
-						classSet[className] = true
+					if className != "" {
+						if _, ok := classSet[className]; !ok {
+							classes = append(classes, className)
+							classSet[className] = struct{}{}
+						}
 					}
 				}
 			}
@@ -51,11 +59,13 @@ func ExtractTemplClasses(content string) []string {
 	for _, match := range identifierRegex.FindAllStringSubmatch(content, -1) {
 		if len(match) > 1 {
 			className := match[1]
-			if className != "" && !classSet[className] && !e(className) {
-				// Only add if looks like CSS (not common words)
-				if isLikelyCSSIdentifier(className) {
-					classes = append(classes, className)
-					classSet[className] = true
+			if className != "" {
+				if _, ok := classSet[className]; !ok && !e(className) {
+					// Only add if looks like CSS (not common words)
+					if isLikelyCSSIdentifier(className) {
+						classes = append(classes, className)
+						classSet[className] = struct{}{}
+					}
 				}
 			}
 		}
@@ -73,9 +83,6 @@ func isLikelyCSSIdentifier(s string) bool {
 
 // e is a helper to check for common English words to exclude from CSS identifier detection
 func e(s string) bool {
-	commonWords := map[string]bool{
-		"the": true, "and": true, "or": true, "for": true, "is": true, "in": true, "of": true,
-		"to": true, "a": true, "an": true, "on": true, "at": true, "by": true, "it": true,
-	}
-	return commonWords[strings.ToLower(s)]
+	_, ok := commonWords[strings.ToLower(s)]
+	return ok
 }
