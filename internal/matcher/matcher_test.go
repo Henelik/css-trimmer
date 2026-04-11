@@ -53,7 +53,10 @@ func TestFindSubMatch(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := FindSubMatches(tc.prefix, tc.postfix, tc.content)
+			got := make([]string, 0)
+			for match := range FindSubMatches(tc.prefix, tc.postfix, tc.content) {
+				got = append(got, match)
+			}
 
 			assert.Equal(t, tc.want, got)
 		})

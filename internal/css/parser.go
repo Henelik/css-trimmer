@@ -54,9 +54,7 @@ func extractClassesFromSelector(selector string) []string {
 	seen := make(map[string]struct{})
 
 	// Regex to find .classname patterns
-	matches := matcher.MatchCSSClassDefinition(selector)
-
-	for _, match := range matches {
+	for match := range matcher.MatchCSSClassDefinition(selector) {
 		if _, ok := seen[match]; !ok {
 			classes = append(classes, match)
 			seen[match] = struct{}{}

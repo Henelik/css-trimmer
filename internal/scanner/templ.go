@@ -21,7 +21,7 @@ func ExtractTemplClasses(content string) []string {
 	classSet := make(map[string]struct{})
 
 	// Pattern 1: class="foo bar baz"
-	for _, match := range matcher.FindSubMatches(`class="`, `"`, content) {
+	for match := range matcher.FindSubMatches(`class="`, `"`, content) {
 		for part := range strings.FieldsSeq(match) {
 			if part != "" {
 				if _, ok := classSet[part]; !ok {
@@ -33,9 +33,9 @@ func ExtractTemplClasses(content string) []string {
 	}
 
 	// Pattern 2: templ.Classes("foo", "bar")
-	for _, match := range matcher.FindSubMatches(`templ.Classes(`, ")", content) {
+	for match := range matcher.FindSubMatches(`templ.Classes(`, ")", content) {
 		// Extract strings from the argument list
-		for _, className := range matcher.FindSubMatches(`"`, `"`, match) {
+		for className := range matcher.FindSubMatches(`"`, `"`, match) {
 			if className != "" {
 				if _, ok := classSet[className]; !ok {
 					classes = append(classes, className)

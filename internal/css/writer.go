@@ -151,11 +151,9 @@ func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
 		return true
 	}
 
-	matches := matcher.MatchCSSClassDefinition(before)
-
 	var selectorClasses []string
 	seen := make(map[string]bool)
-	for _, match := range matches {
+	for match := range matcher.MatchCSSClassDefinition(before) {
 		if !seen[match] {
 			selectorClasses = append(selectorClasses, match)
 			seen[match] = true
@@ -163,7 +161,10 @@ func shouldKeepRule(rule string, toRemove map[string]struct{}) bool {
 	}
 
 	if len(selectorClasses) == 0 {
-		nestedMatches := matcher.MatchCSSClassDefinition(rule)
+		var nestedMatches []string
+		for match := range matcher.MatchCSSClassDefinition(rule) {
+			nestedMatches = append(nestedMatches, match)
+		}
 		if len(nestedMatches) == 0 {
 			return true
 		}
@@ -295,10 +296,8 @@ func filterPseudoFunctionContent(content string, toRemove map[string]struct{}) s
 			continue
 		}
 
-		matches := matcher.MatchCSSClassDefinition(trimmed)
-
 		shouldKeep := true
-		for _, match := range matches {
+		for match := range matcher.MatchCSSClassDefinition(trimmed) {
 			if _, ok := toRemove[match]; ok {
 				shouldKeep = false
 				break
@@ -385,11 +384,12 @@ func filterSelectorsFromRule(w io.Writer, rule string, toRemove map[string]struc
 		}
 
 		filteredTrimmed := strings.TrimSpace(filteredSel)
-		matches := matcher.MatchCSSClassDefinition(filteredTrimmed)
 
 		seen := make(map[string]bool)
 		hasKeepableClass := false
-		for _, match := range matches {
+		matchCount := 0
+		for match := range matcher.MatchCSSClassDefinition(filteredTrimmed) {
+			matchCount++
 			if !seen[match] {
 				seen[match] = true
 				if _, ok := toRemove[match]; !ok {
@@ -399,7 +399,7 @@ func filterSelectorsFromRule(w io.Writer, rule string, toRemove map[string]struc
 			}
 		}
 
-		shouldKeep := len(matches) == 0 || hasKeepableClass
+		shouldKeep := matchCount == 0 || hasKeepableClass
 		if !shouldKeep {
 			continue
 		}
