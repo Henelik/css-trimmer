@@ -12,7 +12,7 @@ func extractJSXClasses(content string) []string {
 	classSet := make(map[string]struct{})
 
 	// Pattern: className="foo bar"
-	for _, match := range matcher.FindSubMatches(`class="`, `"`, content) {
+	for _, match := range matcher.FindSubMatches(`className="`, `"`, content) {
 		for part := range strings.FieldsSeq(match) {
 			if part != "" {
 				if _, ok := classSet[part]; !ok {
