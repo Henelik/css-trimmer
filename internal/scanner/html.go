@@ -10,7 +10,7 @@ import (
 // ExtractHTMLClasses scans an HTML file and returns all found class names.
 func ExtractHTMLClasses(content io.Reader) ([]string, error) {
 	var classes []string
-	classSet := make(map[string]bool)
+	classSet := make(map[string]struct{})
 
 	tokenizer := html.NewTokenizer(content)
 
@@ -32,9 +32,11 @@ func ExtractHTMLClasses(content io.Reader) ([]string, error) {
 				if a.Key == "class" {
 					// Split on whitespace and add each class
 					for part := range strings.FieldsSeq(a.Val) {
-						if part != "" && !classSet[part] {
-							classes = append(classes, part)
-							classSet[part] = true
+						if part != "" {
+							if _, ok := classSet[part]; ok {
+								classes = append(classes, part)
+								classSet[part] = struct{}{}
+							}
 						}
 					}
 					break

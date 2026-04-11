@@ -3,16 +3,10 @@ package scanner
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/Henelik/css-trimmer/internal/config"
-)
-
-var (
-	classNameRegex = regexp.MustCompile(`className="([^"]*)"`)
-	classRegex     = regexp.MustCompile(`class="([^"]*)"`)
 )
 
 // Scanner walks a directory and extracts CSS class references.

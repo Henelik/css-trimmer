@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -57,11 +58,5 @@ func Load(path string) (*Config, error) {
 
 // IsExtensionIncluded checks if a file extension should be scanned.
 func (c *Config) IsExtensionIncluded(filePath string) bool {
-	ext := filepath.Ext(filePath)
-	for _, e := range c.Extensions {
-		if e == ext {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(c.Extensions, filepath.Ext(filePath))
 }
