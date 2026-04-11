@@ -33,7 +33,7 @@ func ExtractHTMLClasses(content io.Reader) ([]string, error) {
 					// Split on whitespace and add each class
 					for part := range strings.FieldsSeq(a.Val) {
 						if part != "" {
-							if _, ok := classSet[part]; ok {
+							if _, ok := classSet[part]; !ok {
 								classes = append(classes, part)
 								classSet[part] = struct{}{}
 							}
