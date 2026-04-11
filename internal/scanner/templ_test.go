@@ -354,3 +354,30 @@ func TestExtractTemplClasses_EdgeCases(t *testing.T) {
 		assert.Contains(t, classes, "actual-class")
 	})
 }
+
+func BenchmarkExtractTemplClasses(b *testing.B) {
+	content := `<div class="field">
+	<label class="label">Name</label>
+	<div class="control">
+		<input class="input" type="text" name="name" placeholder="Your Name" required/>
+	</div>
+</div>
+<div class="field">
+	<label class="label">Email</label>
+	<div class="control">
+		<input class="input" type="email" name="email" placeholder="your@email.com" required/>
+	</div>
+	templ.Classes("meow_mix", "doggy_dinner")
+</div>
+<div class="field">
+	<label class="label">Company</label>
+	<div class="control">
+		<input class="input" type="text" name="company" placeholder="Your Company"/>
+	</div>
+</div>`
+
+	b.ResetTimer()
+	for b.Loop() {
+		ExtractTemplClasses(content)
+	}
+}

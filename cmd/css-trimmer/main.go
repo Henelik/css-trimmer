@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 
 	"github.com/spf13/cobra"
 
@@ -27,12 +30,13 @@ type cssReadResult struct {
 }
 
 var (
-	dryRun     bool
-	configPath string
-	outputPath string
-	format     string
-	verbose    bool
-	noBackup   bool
+	dryRun        bool
+	configPath    string
+	outputPath    string
+	format        string
+	verbose       bool
+	noBackup      bool
+	profilePrefix string
 )
 
 var rootCmd = &cobra.Command{
@@ -51,6 +55,7 @@ func init() {
 	rootCmd.Flags().StringVar(&format, "format", "text", "Report format: text, json")
 	rootCmd.Flags().BoolVar(&verbose, "verbose", false, "Print every class found and its decision")
 	rootCmd.Flags().BoolVar(&noBackup, "no-backup", false, "Skip creating a .bak file before writing")
+	rootCmd.Flags().StringVar(&profilePrefix, "pprof", "", "Write CPU and heap profiles with this file prefix (e.g. profile)")
 }
 
 func main() {
@@ -63,6 +68,38 @@ func main() {
 func runCssTrimmer(cmd *cobra.Command, args []string) {
 	srcDir := args[0]
 	cssFile := args[1]
+
+	if profilePrefix != "" {
+		cpuProfilePath := filepath.Clean(profilePrefix + ".cpu.pprof")
+		cpuFile, err := os.Create(cpuProfilePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "CPU profile create error: %v\n", err)
+			os.Exit(3)
+		}
+		if err := pprof.StartCPUProfile(cpuFile); err != nil {
+			_ = cpuFile.Close()
+			fmt.Fprintf(os.Stderr, "CPU profile start error: %v\n", err)
+			os.Exit(3)
+		}
+		defer func() {
+			pprof.StopCPUProfile()
+			_ = cpuFile.Close()
+		}()
+
+		defer func() {
+			runtime.GC()
+			heapProfilePath := filepath.Clean(profilePrefix + ".heap.pprof")
+			heapFile, err := os.Create(heapProfilePath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Heap profile create error: %v\n", err)
+				return
+			}
+			defer func() { _ = heapFile.Close() }()
+			if err := pprof.WriteHeapProfile(heapFile); err != nil {
+				fmt.Fprintf(os.Stderr, "Heap profile write error: %v\n", err)
+			}
+		}()
+	}
 
 	// Load configuration
 	cfg, err := config.Load(configPath)
