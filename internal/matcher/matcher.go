@@ -53,8 +53,10 @@ func MatchCSSClassDefinition(content string) []string {
 		idx += start + 1
 
 		// Find the end of the definition
-		endIdx := strings.IndexAny(content[idx:], " .,:")
+		endIdx := strings.IndexAny(content[idx:], " .,:[")
 		if endIdx == -1 {
+			// No delimiter found - capture until end of string
+			result = append(result, content[idx:])
 			break
 		}
 
