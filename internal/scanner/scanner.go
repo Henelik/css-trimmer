@@ -1,9 +1,11 @@
 package scanner
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -60,16 +62,29 @@ func (s *Scanner) Scan(srcDir string) ([]string, int, error) {
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	errCh := make(chan error, len(files))
+	var errs []error
+
+	// Limit concurrent file scanning to avoid file-descriptor exhaustion.
+	semSize := runtime.NumCPU() * 2
+	if semSize < 1 {
+		semSize = 1
+	}
+	sem := make(chan struct{}, semSize)
 
 	for _, path := range files {
 		wg.Add(1)
+		sem <- struct{}{}
 		go func(path string) {
-			defer wg.Done()
+			defer func() {
+				<-sem
+				wg.Done()
+			}()
 
 			classes, err := s.extractFileClasses(path)
 			if err != nil {
-				errCh <- err
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
 				return
 			}
 
@@ -86,12 +101,9 @@ func (s *Scanner) Scan(srcDir string) ([]string, int, error) {
 	}
 
 	wg.Wait()
-	close(errCh)
 
-	for err := range errCh {
-		if err != nil {
-			return nil, 0, err
-		}
+	if len(errs) > 0 {
+		return nil, 0, errors.Join(errs...)
 	}
 
 	return s.classes, s.filesScanned, nil
