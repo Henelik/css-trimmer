@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"fmt"
 	"testing"
 
 	"github.com/Henelik/css-trimmer/internal/config"
@@ -288,5 +289,70 @@ func TestScannerScan_EdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, filesScanned)
 		assert.Greater(t, len(scannedClasses), 0)
+	})
+}
+
+
+func TestScannerScan_AggregatesErrors(t *testing.T) {
+	t.Run("returns joined error when multiple files fail", func(t *testing.T) {
+		tmpdir := t.TempDir()
+
+		// Create unreadable HTML files so os.ReadFile returns errors.
+		for i := range 3 {
+			f := filepath.Join(tmpdir, fmt.Sprintf("fail%d.html", i))
+			require.NoError(t, os.WriteFile(f, []byte(`<div class="x">`), 0644))
+			require.NoError(t, os.Chmod(f, 0000))
+		}
+
+		cfg := &config.Config{
+			Extensions:           []string{".html"},
+			Whitelist:            []string{},
+			Blacklist:            []string{},
+			DynamicClassPatterns: []string{},
+		}
+		scanner := NewScanner(cfg)
+		classes, filesScanned, err := scanner.Scan(tmpdir)
+
+		require.Error(t, err)
+		assert.Nil(t, classes)
+		assert.Equal(t, 0, filesScanned)
+
+		// All three error messages must be present in the joined error.
+		errMsg := err.Error()
+		for i := range 3 {
+			assert.Contains(t, errMsg, fmt.Sprintf("fail%d.html", i))
+		}
+
+		for i := range 3 {
+			_ = os.Chmod(filepath.Join(tmpdir, fmt.Sprintf("fail%d.html", i)), 0644)
+		}
+	})
+}
+
+func TestScannerScan_ConcurrencyLimit(t *testing.T) {
+	t.Run("still scans many files correctly with concurrency limit", func(t *testing.T) {
+		tmpdir := t.TempDir()
+		numFiles := 50
+
+		for i := range numFiles {
+			f := filepath.Join(tmpdir, fmt.Sprintf("file%d.html", i))
+			require.NoError(t, os.WriteFile(f, []byte(fmt.Sprintf(`<div class="class%d">Content</div>`, i)), 0644))
+		}
+
+		cfg := &config.Config{
+			Extensions:           []string{".html"},
+			Whitelist:            []string{},
+			Blacklist:            []string{},
+			DynamicClassPatterns: []string{},
+		}
+		scanner := NewScanner(cfg)
+		classes, filesScanned, err := scanner.Scan(tmpdir)
+
+		require.NoError(t, err)
+		assert.Equal(t, numFiles, filesScanned)
+		assert.Equal(t, numFiles, len(classes))
+		for i := range numFiles {
+			assert.Contains(t, classes, fmt.Sprintf("class%d", i))
+		}
 	})
 }
