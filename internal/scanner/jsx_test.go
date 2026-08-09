@@ -53,4 +53,31 @@ func TestExtractJSXClasses(t *testing.T) {
 		assert.Contains(t, result, "html-class")
 		assert.Contains(t, result, "react-class")
 	})
+
+	t.Run("extracts static class from template literal", func(t *testing.T) {
+		content := "<div className={`btn`} />"
+		result := extractJSXClasses(content)
+		assert.Contains(t, result, "btn")
+	})
+
+	t.Run("extracts static and interpolated classes from template literal", func(t *testing.T) {
+		content := "<div className={`btn ${isActive ? 'active' : ''}`} />"
+		result := extractJSXClasses(content)
+		assert.Contains(t, result, "btn")
+		assert.Contains(t, result, "active")
+	})
+
+	t.Run("extracts from class attribute template literal", func(t *testing.T) {
+		content := "<div class={`flex center`} />"
+		result := extractJSXClasses(content)
+		assert.Contains(t, result, "flex")
+		assert.Contains(t, result, "center")
+	})
+
+	t.Run("extracts multiple static classes from template literal", func(t *testing.T) {
+		content := "<div className={`btn btn-primary ${size}`} />"
+		result := extractJSXClasses(content)
+		assert.Contains(t, result, "btn")
+		assert.Contains(t, result, "btn-primary")
+	})
 }
