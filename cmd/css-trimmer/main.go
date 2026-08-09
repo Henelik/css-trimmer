@@ -154,7 +154,11 @@ func runCssTrimmer(cmd *cobra.Command, args []string) {
 	}
 
 	// Compute diff
-	diffResult := diff.Compute(inventory.AllClasses(), scanRes.usedClasses, cfg)
+	diffResult, err := diff.Compute(inventory.AllClasses(), scanRes.usedClasses, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Diff compute error: %v\n", err)
+		os.Exit(2)
+	}
 
 	// Print verbose info if requested
 	if verbose {
