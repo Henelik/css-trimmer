@@ -86,6 +86,18 @@ func TestParseCSS(t *testing.T) {
 		assert.Contains(t, inventory, "test")
 	})
 
+	t.Run("skips comment lines with braces", func(t *testing.T) {
+		content := `/* a comment with { braces */
+.test {
+  color: red;
+}`
+		inventory, err := ParseCSS(content)
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, len(inventory))
+		assert.Contains(t, inventory, "test")
+	})
+
 	t.Run("handles classes with hyphens and underscores", func(t *testing.T) {
 		content := `.btn-primary {
   color: blue;
