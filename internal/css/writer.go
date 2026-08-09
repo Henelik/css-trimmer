@@ -31,9 +31,9 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 	if err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
-	defer outputFile.Close()
 
 	if err := streamRemoveUnusedRules(outputFile, content, removeSet); err != nil {
+		_ = outputFile.Close()
 		return fmt.Errorf("failed to write output: %w", err)
 	}
 
