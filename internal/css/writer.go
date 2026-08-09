@@ -20,6 +20,13 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 		removeSet[className] = struct{}{}
 	}
 
+	if createBackup && outputPath != "" {
+		backupPath := outputPath + ".bak"
+		if err := os.WriteFile(backupPath, []byte(content), 0644); err != nil {
+			return fmt.Errorf("failed to create backup: %w", err)
+		}
+	}
+
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
@@ -32,13 +39,6 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 
 	if err := outputFile.Close(); err != nil {
 		return fmt.Errorf("failed to close output file: %w", err)
-	}
-
-	if createBackup && outputPath != "" {
-		backupPath := outputPath + ".bak"
-		if err := os.WriteFile(backupPath, []byte(content), 0644); err != nil {
-			return fmt.Errorf("failed to create backup: %w", err)
-		}
 	}
 
 	return nil

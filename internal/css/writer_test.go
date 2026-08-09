@@ -67,16 +67,61 @@ func TestWriterWrite(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to write output file")
 	})
 
-	t.Run("handles backup creation errors gracefully", func(t *testing.T) {
+	t.Run("creates backup before writing output", func(t *testing.T) {
+		tmpfile, err := os.CreateTemp("", "css*.css")
+		require.NoError(t, err)
+		tmpfile.Close()
+		defer os.Remove(tmpfile.Name())
+		defer os.Remove(tmpfile.Name() + ".bak")
+
+		content := `.keep {
+  color: blue;
+}
+.remove {
+  color: red;
+}`
+		err = Write(content, []string{"remove"}, tmpfile.Name(), true)
+
+		require.NoError(t, err)
+		backup, err := os.ReadFile(tmpfile.Name() + ".bak")
+		require.NoError(t, err)
+		assert.Equal(t, content, string(backup))
+		result, err := os.ReadFile(tmpfile.Name())
+		require.NoError(t, err)
+		assert.NotContains(t, string(result), ".remove")
+	})
+
+	t.Run("does not write output when backup fails", func(t *testing.T) {
 		tmpfile, err := os.CreateTemp("", "css*.css")
 		require.NoError(t, err)
 		tmpfile.Close()
 		defer os.Remove(tmpfile.Name())
 
-		content := ".test { color: red; }"
-		err = Write(content, []string{}, "/invalid/path/file.css", true)
+		// Make the directory read-only so backup cannot be written.
+		readonlyDir, err := os.MkdirTemp("", "css-readonly-*")
+		require.NoError(t, err)
+		defer os.RemoveAll(readonlyDir)
+
+		// Make a directory inside readonlyDir that we cannot write to.
+		targetDir := filepath.Join(readonlyDir, "target")
+		require.NoError(t, os.MkdirAll(targetDir, 0755))
+		originalPath := filepath.Join(targetDir, "output.css")
+
+		// Write original content and then remove write permission.
+		require.NoError(t, os.WriteFile(originalPath, []byte(".original { color: black; }"), 0644))
+		require.NoError(t, os.Chmod(targetDir, 0500))
+		defer os.Chmod(targetDir, 0755)
+
+		content := `.keep { color: blue; } .remove { color: red; }`
+		err = Write(content, []string{"remove"}, originalPath, true)
 
 		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to create backup")
+
+		// Original file should remain unchanged because write never happened.
+		result, err := os.ReadFile(originalPath)
+		require.NoError(t, err)
+		assert.Equal(t, ".original { color: black; }", string(result))
 	})
 }
 
