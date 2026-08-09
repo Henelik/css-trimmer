@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,7 +108,7 @@ func (s *Scanner) extractFileClasses(path string) ([]string, error) {
 	case ".html":
 		htmlClasses, err := ExtractHTMLClasses(strings.NewReader(string(content)))
 		if err != nil {
-			return nil, nil
+			return nil, fmt.Errorf("failed to parse HTML in %s: %w", path, err)
 		}
 		return htmlClasses, nil
 	case ".templ":

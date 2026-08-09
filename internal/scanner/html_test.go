@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -190,6 +191,13 @@ large">Button</div>`
 }
 
 func TestExtractHTMLClasses_EdgeCases(t *testing.T) {
+	t.Run("returns error when reader fails", func(t *testing.T) {
+		r := &failingReader{err: errors.New("read error")}
+		_, err := ExtractHTMLClasses(r)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "read error")
+	})
+
 	t.Run("handles attributes in different order", func(t *testing.T) {
 		html := `<div data-test="value" id="main" class="test-class" title="Test">Content</div>`
 		classes, err := ExtractHTMLClasses(strings.NewReader(html))
@@ -249,6 +257,14 @@ func TestExtractHTMLClasses_EdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, classes, "active")
 	})
+}
+
+type failingReader struct {
+	err error
+}
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	return 0, r.err
 }
 
 func TestExtractHTMLClasses_RealWorldScenarios(t *testing.T) {
