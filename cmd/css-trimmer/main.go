@@ -185,17 +185,17 @@ func runCssTrimmer(cmd *cobra.Command, args []string) {
 		fmt.Print(rep.TextReport())
 	}
 
-	// Write if not dry run
-	if !dryRun && len(diffResult.ToRemove) > 0 {
+	// Write if not dry run and not fail_on_removal
+	if !dryRun && !cfg.FailOnRemoval && len(diffResult.ToRemove) > 0 {
 		err := css.Write(cssRes.content, diffResult.ToRemove, outFile, !noBackup)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Write error: %v\n", err)
 			os.Exit(3)
 		}
+	}
 
-		// Check fail_on_removal flag
-		if cfg.FailOnRemoval && len(diffResult.ToRemove) > 0 {
-			os.Exit(1)
-		}
+	// Check fail_on_removal flag after reporting
+	if cfg.FailOnRemoval && len(diffResult.ToRemove) > 0 {
+		os.Exit(1)
 	}
 }
