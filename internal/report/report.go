@@ -14,7 +14,6 @@ type Reporter struct {
 	scannedFiles int
 	outputFile   string
 	backupFile   string
-	verbose      bool
 }
 
 // NewReporter creates a new reporter.

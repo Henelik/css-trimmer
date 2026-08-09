@@ -51,7 +51,7 @@ func ExtractTemplClasses(content string) []string {
 		if len(match) > 1 {
 			className := match[1]
 			if className != "" {
-				if _, ok := classSet[className]; !ok && !e(className) {
+				if _, ok := classSet[className]; !ok && !isExcludedWord(className) {
 					// Only add if looks like CSS (not common words)
 					if isLikelyCSSIdentifier(className) {
 						classes = append(classes, className)
@@ -72,8 +72,9 @@ func isLikelyCSSIdentifier(s string) bool {
 	return strings.ContainsAny(s, "-_")
 }
 
-// e is a helper to check for common English words to exclude from CSS identifier detection
-func e(s string) bool {
+// isExcludedWord checks whether a string is a common English word that should be
+// excluded from CSS identifier detection.
+func isExcludedWord(s string) bool {
 	_, ok := commonWords[strings.ToLower(s)]
 	return ok
 }
