@@ -205,7 +205,7 @@ func TestExcludedWords(t *testing.T) {
 		words := []string{"the", "and", "or", "for", "is", "in", "of", "to", "a", "an", "on", "at", "by", "it"}
 
 		for _, word := range words {
-			assert.True(t, e(word), "word %s should be excluded", word)
+			assert.True(t, isExcludedWord(word), "word %s should be excluded", word)
 		}
 	})
 
@@ -213,14 +213,14 @@ func TestExcludedWords(t *testing.T) {
 		words := []string{"button", "form", "input", "header", "footer"}
 
 		for _, word := range words {
-			assert.False(t, e(word), "word %s should not be excluded", word)
+			assert.False(t, isExcludedWord(word), "word %s should not be excluded", word)
 		}
 	})
 
 	t.Run("case-insensitive exclusion", func(t *testing.T) {
-		assert.True(t, e("THE"))
-		assert.True(t, e("The"))
-		assert.True(t, e("And"))
+		assert.True(t, isExcludedWord("THE"))
+		assert.True(t, isExcludedWord("The"))
+		assert.True(t, isExcludedWord("And"))
 	})
 }
 
