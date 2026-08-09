@@ -24,7 +24,7 @@ func ParseCSS(content string) (ClassInventory, error) {
 		}
 
 		// Start of rule - extract selector(s)
-		if strings.Contains(trimmed, "{") && !strings.HasPrefix(trimmed, "/*") {
+		if strings.Contains(trimmed, "{") {
 			inRule = true
 			ruleStart = lineNum
 
