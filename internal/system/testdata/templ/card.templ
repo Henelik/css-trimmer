@@ -1,0 +1,14 @@
+package components
+
+templ Card() {
+  <div class="card">
+    <h2 class="card-title">Card Title</h2>
+    <p>Some content here.</p>
+    <button class="btn">Click me</button>
+    <a class="link" href="https://example.com">External link</a>
+  </div>
+}
+
+templ Button() {
+  <button class={ templ.Classes("btn", "btn-primary") }>Submit</button>
+}

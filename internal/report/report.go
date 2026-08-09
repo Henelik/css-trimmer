@@ -8,6 +8,17 @@ import (
 	"github.com/Henelik/css-trimmer/internal/diff"
 )
 
+// ReportData is the JSON-serializable payload produced by JSONReport.
+type ReportData struct {
+	ScannedFiles int      `json:"scanned_files"`
+	Defined      int      `json:"defined"`
+	Used         int      `json:"used"`
+	ToRemove     []string `json:"to_remove"`
+	Whitelisted  []string `json:"whitelisted"`
+	Blacklisted  []string `json:"blacklisted"`
+	OutputFile   string   `json:"output_file,omitempty"`
+}
+
 // Reporter generates text and JSON reports of the trimming results.
 type Reporter struct {
 	result       *diff.DiffResult
@@ -56,20 +67,23 @@ func (r *Reporter) TextReport() string {
 }
 
 // JSONReport returns a JSON representation of the results.
-func (r *Reporter) JSONReport() string {
-	data := map[string]any{
-		"scanned_files": r.scannedFiles,
-		"defined":       len(r.result.Used) + len(r.result.Unused),
-		"used":          len(r.result.Used),
-		"to_remove":     r.result.ToRemove,
-		"whitelisted":   r.result.Whitelisted,
-		"blacklisted":   r.result.Blacklisted,
+func (r *Reporter) JSONReport() (string, error) {
+	data := ReportData{
+		ScannedFiles: r.scannedFiles,
+		Defined:      len(r.result.Used) + len(r.result.Unused),
+		Used:         len(r.result.Used),
+		ToRemove:     r.result.ToRemove,
+		Whitelisted:  r.result.Whitelisted,
+		Blacklisted:  r.result.Blacklisted,
 	}
 
 	if r.outputFile != "" {
-		data["output_file"] = r.outputFile
+		data.OutputFile = r.outputFile
 	}
 
-	jsonBytes, _ := json.MarshalIndent(data, "", "  ")
-	return string(jsonBytes)
+	jsonBytes, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal report: %w", err)
+	}
+	return string(jsonBytes), nil
 }

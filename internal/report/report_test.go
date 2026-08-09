@@ -88,10 +88,12 @@ func TestReporterJSONReport(t *testing.T) {
 			ToRemove:    []string{"unused", "deprecated"},
 		}
 		reporter := NewReporter(result, 10, "/output.css", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		var data map[string]any
-		err := json.Unmarshal([]byte(jsonReport), &data)
+		err = json.Unmarshal([]byte(jsonReport), &data)
 		require.NoError(t, err)
 	})
 
@@ -104,7 +106,9 @@ func TestReporterJSONReport(t *testing.T) {
 			ToRemove:    []string{"unused", "deprecated"},
 		}
 		reporter := NewReporter(result, 5, "/output.css", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		var data map[string]any
 		json.Unmarshal([]byte(jsonReport), &data)
@@ -122,7 +126,9 @@ func TestReporterJSONReport(t *testing.T) {
 			ToRemove: []string{"class1", "class2"},
 		}
 		reporter := NewReporter(result, 1, "", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		var data map[string]any
 		json.Unmarshal([]byte(jsonReport), &data)
@@ -139,7 +145,9 @@ func TestReporterJSONReport(t *testing.T) {
 			ToRemove:    []string{},
 		}
 		reporter := NewReporter(result, 1, "", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		var data map[string]any
 		json.Unmarshal([]byte(jsonReport), &data)
@@ -156,7 +164,9 @@ func TestReporterJSONReport(t *testing.T) {
 			ToRemove:    []string{"deprecated"},
 		}
 		reporter := NewReporter(result, 1, "", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		var data map[string]any
 		json.Unmarshal([]byte(jsonReport), &data)
@@ -171,7 +181,9 @@ func TestReporterJSONReport(t *testing.T) {
 			Unused: []string{},
 		}
 		reporter := NewReporter(result, 1, "", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		var data map[string]any
 		json.Unmarshal([]byte(jsonReport), &data)
@@ -188,10 +200,12 @@ func TestReporterJSONReport(t *testing.T) {
 			ToRemove:    []string{},
 		}
 		reporter := NewReporter(result, 0, "", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		var data map[string]any
-		err := json.Unmarshal([]byte(jsonReport), &data)
+		err = json.Unmarshal([]byte(jsonReport), &data)
 		require.NoError(t, err)
 
 		assert.Equal(t, []any{}, data["to_remove"])
@@ -223,7 +237,9 @@ func TestReporter_RealWorldScenarios(t *testing.T) {
 		}
 		reporter := NewReporter(result, 50, "/dist/style.min.css", "/dist/style.min.css.bak")
 		textReport := reporter.TextReport()
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		// Verify text report
 		assert.Contains(t, textReport, "50 files scanned")
@@ -300,7 +316,9 @@ func TestReporter_EdgeCases(t *testing.T) {
 			Unused: []string{},
 		}
 		reporter := NewReporter(result, 1, "", "")
-		jsonReport := reporter.JSONReport()
+		jsonReport, err := reporter.JSONReport()
+		require.NoError(t, err)
+
 
 		// Should contain proper indentation
 		assert.Contains(t, jsonReport, "\n  ")

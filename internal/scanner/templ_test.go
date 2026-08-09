@@ -81,22 +81,58 @@ func TestExtractTemplClasses(t *testing.T) {
 		assert.Contains(t, classes, "text-2xl")
 	})
 
-	t.Run("extracts quoted identifiers that look like CSS", func(t *testing.T) {
-		content := `"btn-class" "form-control-lg"`
+	t.Run("extracts quoted identifiers that look like CSS inside templ block", func(t *testing.T) {
+		content := `templ Example() {
+	"btn-class" "form-control-lg"
+}`
 		classes := ExtractTemplClasses(content)
 
 		assert.Contains(t, classes, "btn-class")
 		assert.Contains(t, classes, "form-control-lg")
 	})
 
-	t.Run("ignores common English words", func(t *testing.T) {
-		content := `"the" "and" "for" "btn-primary"`
+	t.Run("ignores common English words inside templ block", func(t *testing.T) {
+		content := `templ Example() {
+	"the" "and" "for" "btn-primary"
+}`
 		classes := ExtractTemplClasses(content)
 
 		assert.NotContains(t, classes, "the")
 		assert.NotContains(t, classes, "and")
 		assert.NotContains(t, classes, "for")
 		assert.Contains(t, classes, "btn-primary")
+	})
+
+	t.Run("ignores Go string literals outside templ block", func(t *testing.T) {
+		content := `package example
+
+func Message() string {
+	return "user-not-found"
+}
+
+func Config() string {
+	return "invalid-input"
+}`
+		classes := ExtractTemplClasses(content)
+
+		assert.NotContains(t, classes, "user-not-found")
+		assert.NotContains(t, classes, "invalid-input")
+	})
+
+	t.Run("extracts quoted identifier inside templ block", func(t *testing.T) {
+		content := `package example
+
+func helper() string {
+	return "user-not-found"
+}
+
+templ Example() {
+	"dynamic-class-name"
+}`
+		classes := ExtractTemplClasses(content)
+
+		assert.NotContains(t, classes, "user-not-found")
+		assert.Contains(t, classes, "dynamic-class-name")
 	})
 
 	t.Run("handles empty class attribute", func(t *testing.T) {

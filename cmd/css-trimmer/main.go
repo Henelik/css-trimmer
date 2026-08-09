@@ -184,7 +184,12 @@ func runCssTrimmer(cmd *cobra.Command, args []string) {
 
 	// Output report
 	if format == "json" {
-		fmt.Println(rep.JSONReport())
+		jsonReport, err := rep.JSONReport()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Report error: %v\n", err)
+			os.Exit(2)
+		}
+		fmt.Println(jsonReport)
 	} else {
 		fmt.Print(rep.TextReport())
 	}

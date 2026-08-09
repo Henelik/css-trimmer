@@ -20,15 +20,20 @@ func ExtractTemplClasses(content string) []string {
 	var classes []string
 	classSet := make(map[string]struct{})
 
+	addClass := func(class string) {
+		if class == "" {
+			return
+		}
+		if _, ok := classSet[class]; !ok {
+			classes = append(classes, class)
+			classSet[class] = struct{}{}
+		}
+	}
+
 	// Pattern 1: class="foo bar baz"
 	for match := range matcher.FindSubMatches(`class="`, `"`, content) {
 		for part := range strings.FieldsSeq(match) {
-			if part != "" {
-				if _, ok := classSet[part]; !ok {
-					classes = append(classes, part)
-					classSet[part] = struct{}{}
-				}
-			}
+			addClass(part)
 		}
 	}
 
@@ -36,33 +41,73 @@ func ExtractTemplClasses(content string) []string {
 	for match := range matcher.FindSubMatches(`templ.Classes(`, ")", content) {
 		// Extract strings from the argument list
 		for className := range matcher.FindSubMatches(`"`, `"`, match) {
-			if className != "" {
-				if _, ok := classSet[className]; !ok {
-					classes = append(classes, className)
-					classSet[className] = struct{}{}
-				}
-			}
+			addClass(className)
 		}
 	}
 
-	// Pattern 3: Fallback - scan for quoted identifiers that look like CSS classes
-	// This is conservative and marks them as potentially used
-	for _, match := range identifierRegex.FindAllStringSubmatch(content, -1) {
-		if len(match) > 1 {
-			className := match[1]
-			if className != "" {
-				if _, ok := classSet[className]; !ok && !isExcludedWord(className) {
-					// Only add if looks like CSS (not common words)
-					if isLikelyCSSIdentifier(className) {
-						classes = append(classes, className)
-						classSet[className] = struct{}{}
-					}
+	// Pattern 3: Fallback - scan for quoted identifiers that look like CSS
+	// classes, but only inside templ component blocks to avoid matching Go
+	// string literals in regular function bodies.
+	blocks := extractTemplBlocks(content)
+	for _, match := range identifierRegex.FindAllStringSubmatchIndex(blocks, -1) {
+		if len(match) > 3 {
+			className := blocks[match[2]:match[3]]
+			if _, ok := classSet[className]; !ok && !isExcludedWord(className) {
+				if isLikelyCSSIdentifier(className) {
+					addClass(className)
 				}
 			}
 		}
 	}
 
 	return classes
+}
+
+// extractTemplBlocks returns the concatenated content of all templ component
+// blocks, i.e. regions between "templ " and the matching closing brace, while
+// skipping ordinary Go functions and other source regions.
+func extractTemplBlocks(content string) string {
+	var result strings.Builder
+	i := 0
+	for i < len(content) {
+		idx := strings.Index(content[i:], "templ ")
+		if idx == -1 {
+			break
+		}
+		idx += i
+
+		// Advance past the "templ " keyword and the component signature to find
+		// the opening brace of the component body.
+		brace := strings.Index(content[idx:], "{")
+		if brace == -1 {
+			break
+		}
+		bodyStart := idx + brace
+
+		// Find the matching closing brace, accounting for nested braces.
+		depth := 1
+		bodyEnd := -1
+		for j := bodyStart + 1; j < len(content); j++ {
+			switch content[j] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+				if depth == 0 {
+					bodyEnd = j
+					goto done
+				}
+			}
+		}
+	done:
+		if bodyEnd == -1 {
+			break
+		}
+
+		result.WriteString(content[bodyStart : bodyEnd+1])
+		i = bodyEnd + 1
+	}
+	return result.String()
 }
 
 // isLikelyCSSIdentifier checks if a string looks like a CSS class name
