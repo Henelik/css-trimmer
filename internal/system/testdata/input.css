@@ -1,0 +1,65 @@
+/* css-trimmer system test CSS file.
+   Contains a broad set of class definitions covering the official CSS spec
+   selectors and common patterns. Some classes are referenced by the source
+   folders (kept), others are not (removed). */
+
+/* ===== Element / class selectors ===== */
+body { margin: 0; }
+.container { max-width: 1200px; margin: 0 auto; }
+.header { background: #333; color: #fff; }
+.footer { background: #222; color: #ccc; }
+.main-content { padding: 1rem; }
+.sidebar { width: 300px; }
+
+/* ===== Pseudo-classes and pseudo-elements ===== */
+.btn:hover { background: #0056b3; }
+.btn:focus { outline: 2px solid #80bdff; }
+.btn::before { content: ""; }
+.btn::after { content: ""; }
+.link:visited { color: purple; }
+.input:disabled { opacity: 0.5; }
+.item:nth-child(2n) { background: #f5f5f5; }
+.item:first-child { border-top: 0; }
+.item:last-child { border-bottom: 0; }
+
+/* ===== Attribute selectors ===== */
+.input[type="text"] { border: 1px solid #ccc; }
+.input[type="password"] { border: 1px solid #999; }
+a[href^="https"] { color: #007bff; }
+a[href$=".pdf"] { color: #dc3545; }
+
+/* ===== Combinators ===== */
+.nav > .nav-item { display: inline-block; }
+.card .card-title { font-weight: bold; }
+.card + .card { margin-top: 1rem; }
+.list ~ .list-footer { color: #666; }
+
+/* ===== At-rules (multi-line and single-line) ===== */
+@media (max-width: 768px) {
+  .container { padding: 0 1rem; }
+  .sidebar { display: none; }
+}
+@media (min-width: 769px) { .desktop-only { display: block; } }
+@supports (display: grid) {
+  .grid-layout { display: grid; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ===== Nested at-rules on a single line ===== */
+@media (max-width: 480px) { .mobile-only { display: block; } }
+
+/* ===== Classes that should be REMOVED (not referenced anywhere) ===== */
+.unused-class { color: red; }
+.legacy-style { color: blue; }
+.obsolete-widget { color: green; }
+.deprecated-theme { color: yellow; }
+.never-used { color: orange; }
+
+/* ===== Referenced classes (kept) ===== */
+.btn-primary { background: #007bff; color: #fff; }
+.desktop-only { display: block; }
+.grid-layout { display: grid; }
+.mobile-only { display: block; }

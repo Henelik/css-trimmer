@@ -20,7 +20,7 @@ func Write(content string, toRemove []string, outputPath string, createBackup bo
 		removeSet[className] = struct{}{}
 	}
 
-	if createBackup && outputPath != "" {
+	if createBackup {
 		backupPath := outputPath + ".bak"
 		if err := os.WriteFile(backupPath, []byte(content), 0644); err != nil {
 			return fmt.Errorf("failed to create backup: %w", err)
@@ -63,6 +63,20 @@ func streamRemoveUnusedRules(w io.Writer, content string, toRemove map[string]st
 
 		if !inRule && !strings.HasPrefix(trimmed, "/*") && trimmed != "" {
 			if openBraces > 0 {
+				// A balanced single-line rule (e.g. `@media (...) { .foo { ... } }`)
+				// opens and closes on the same line. Complete it immediately so it
+				// does not swallow subsequent rules.
+				if openBraces == closeBraces {
+					rule := line
+					if shouldKeepRule(rule, toRemove) {
+						if err := filterSelectorsFromRule(w, rule, toRemove); err != nil {
+							return err
+						}
+						lastWasRule = true
+						prevWasRule = true
+					}
+					continue
+				}
 				inRule = true
 				ruleBuffer = []string{line}
 				braceDepth = openBraces - closeBraces
@@ -123,11 +137,11 @@ func streamRemoveUnusedRules(w io.Writer, content string, toRemove map[string]st
 	}
 
 	if len(ruleBuffer) > 0 {
-		for _, rule := range ruleBuffer {
+		rule := strings.Join(ruleBuffer, "\n")
+		if shouldKeepRule(rule, toRemove) {
 			if _, err := w.Write([]byte("\n")); err != nil {
 				return err
 			}
-
 			if _, err := w.Write([]byte(rule)); err != nil {
 				return err
 			}

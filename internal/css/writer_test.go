@@ -639,9 +639,12 @@ func TestWriter_EdgeCases(t *testing.T) {
 .next {
   color: blue;
 }`
-		result := removeUnusedRules(content, toRemoveSet([]string{"incomplete"}))
+		// Remove a class that is not present; the malformed rule (which contains
+		// the keepable .next class) should still be preserved.
+		result := removeUnusedRules(content, toRemoveSet([]string{"nonexistent"}))
 
 		assert.NotEmpty(t, result)
+		assert.Contains(t, result, ".next")
 	})
 
 	t.Run("handles empty content", func(t *testing.T) {
@@ -992,5 +995,20 @@ func TestWriter_MultilineSelectorFormatting(t *testing.T) {
 		assert.Contains(t, result, ".navbar-item:not(.is-active)")
 		assert.NotContains(t, result, ".is-selected")
 		assert.Contains(t, result, "\n.navbar-item")
+	})
+
+	t.Run("single-line balanced at-rule does not swallow following rules", func(t *testing.T) {
+		content := `@media (max-width: 480px) { .mobile-only { display: block; } }
+.unused-class { color: red; }
+.keep-me { color: blue; }`
+		result := removeUnusedRules(content, toRemoveSet([]string{"unused-class"}))
+
+		// The single-line at-rule should be preserved.
+		assert.Contains(t, result, "@media (max-width: 480px)")
+		assert.Contains(t, result, ".mobile-only")
+		// The unused rule after it should be removed.
+		assert.NotContains(t, result, ".unused-class")
+		// The keepable rule after it should be preserved.
+		assert.Contains(t, result, ".keep-me")
 	})
 }
