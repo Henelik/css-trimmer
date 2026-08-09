@@ -1,10 +1,10 @@
 package scanner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"fmt"
 	"testing"
 
 	"github.com/Henelik/css-trimmer/internal/config"
@@ -292,16 +292,16 @@ func TestScannerScan_EdgeCases(t *testing.T) {
 	})
 }
 
-
 func TestScannerScan_AggregatesErrors(t *testing.T) {
 	t.Run("returns joined error when multiple files fail", func(t *testing.T) {
 		tmpdir := t.TempDir()
 
-		// Create unreadable HTML files so os.ReadFile returns errors.
+		// Use broken symlinks instead of chmod 0000 so os.ReadFile fails even
+		// when the test is run as root (root bypasses file permissions).
+		target := filepath.Join(tmpdir, "nonexistent-target")
 		for i := range 3 {
-			f := filepath.Join(tmpdir, fmt.Sprintf("fail%d.html", i))
-			require.NoError(t, os.WriteFile(f, []byte(`<div class="x">`), 0644))
-			require.NoError(t, os.Chmod(f, 0000))
+			link := filepath.Join(tmpdir, fmt.Sprintf("fail%d.html", i))
+			require.NoError(t, os.Symlink(target, link))
 		}
 
 		cfg := &config.Config{
@@ -321,10 +321,6 @@ func TestScannerScan_AggregatesErrors(t *testing.T) {
 		errMsg := err.Error()
 		for i := range 3 {
 			assert.Contains(t, errMsg, fmt.Sprintf("fail%d.html", i))
-		}
-
-		for i := range 3 {
-			_ = os.Chmod(filepath.Join(tmpdir, fmt.Sprintf("fail%d.html", i)), 0644)
 		}
 	})
 }
