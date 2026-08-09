@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"path"
 	"regexp"
 	"slices"
@@ -17,7 +18,21 @@ type DiffResult struct {
 }
 
 // Compute calculates which classes should be removed.
-func Compute(inventory, usedClasses []string, cfg *config.Config) *DiffResult {
+func Compute(inventory, usedClasses []string, cfg *config.Config) (*DiffResult, error) {
+	// Validate glob patterns up front so malformed whitelist/blacklist entries surface.
+	if err := validateGlobPatterns(cfg.Whitelist); err != nil {
+		return nil, fmt.Errorf("invalid whitelist pattern: %w", err)
+	}
+	if err := validateGlobPatterns(cfg.Blacklist); err != nil {
+		return nil, fmt.Errorf("invalid blacklist pattern: %w", err)
+	}
+
+	// Pre-compile dynamic class patterns once instead of recompiling per class.
+	compiledPatterns, err := compileDynamicPatterns(cfg.DynamicClassPatterns)
+	if err != nil {
+		return nil, fmt.Errorf("invalid dynamic class pattern: %w", err)
+	}
+
 	result := &DiffResult{
 		Used:        make([]string, 0, len(inventory)),
 		Unused:      make([]string, 0, len(inventory)),
@@ -27,7 +42,7 @@ func Compute(inventory, usedClasses []string, cfg *config.Config) *DiffResult {
 	}
 
 	// Build sets
-	usedSet := buildUsedSet(inventory, usedClasses, cfg.DynamicClassPatterns)
+	usedSet := buildUsedSet(inventory, usedClasses, compiledPatterns)
 	whitelistSet := buildWhitelistSet(inventory, cfg.Whitelist)
 	blacklistSet := buildBlacklistSet(inventory, cfg.Blacklist)
 
@@ -62,11 +77,34 @@ func Compute(inventory, usedClasses []string, cfg *config.Config) *DiffResult {
 	slices.Sort(result.Whitelisted)
 	slices.Sort(result.Blacklisted)
 
-	return result
+	return result, nil
+}
+
+// compileDynamicPatterns pre-compiles regex patterns, returning any compilation error.
+func compileDynamicPatterns(patterns []string) ([]*regexp.Regexp, error) {
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for _, pattern := range patterns {
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("%q: %w", pattern, err)
+		}
+		compiled = append(compiled, re)
+	}
+	return compiled, nil
+}
+
+// validateGlobPatterns checks that every glob pattern can be parsed.
+func validateGlobPatterns(patterns []string) error {
+	for _, pattern := range patterns {
+		if _, err := path.Match(pattern, ""); err != nil {
+			return fmt.Errorf("%q: %w", pattern, err)
+		}
+	}
+	return nil
 }
 
 // buildUsedSet creates a set of classes that appear in source files or match dynamic patterns.
-func buildUsedSet(inventory, usedClasses, classPatterns []string) map[string]struct{} {
+func buildUsedSet(inventory, usedClasses []string, compiledPatterns []*regexp.Regexp) map[string]struct{} {
 	usedSet := make(map[string]struct{})
 
 	// Add explicitly found classes
@@ -76,7 +114,7 @@ func buildUsedSet(inventory, usedClasses, classPatterns []string) map[string]str
 
 	// Add classes matching dynamic patterns
 	for _, className := range inventory {
-		if matchesDynamicPattern(className, classPatterns) {
+		if matchesDynamicPattern(className, compiledPatterns) {
 			usedSet[className] = struct{}{}
 		}
 	}
@@ -84,10 +122,10 @@ func buildUsedSet(inventory, usedClasses, classPatterns []string) map[string]str
 	return usedSet
 }
 
-// matchesDynamicPattern checks if a class matches any dynamic pattern regex.
-func matchesDynamicPattern(className string, classPatterns []string) bool {
-	for _, pattern := range classPatterns {
-		if matched, _ := regexp.MatchString(pattern, className); matched {
+// matchesDynamicPattern checks if a class matches any pre-compiled regex.
+func matchesDynamicPattern(className string, compiledPatterns []*regexp.Regexp) bool {
+	for _, re := range compiledPatterns {
+		if re.MatchString(className) {
 			return true
 		}
 	}
@@ -129,6 +167,10 @@ func buildBlacklistSet(inventory, blacklist []string) map[string]struct{} {
 
 // globMatch uses path.Match semantics for glob patterns.
 func globMatch(pattern, className string) bool {
-	matched, _ := path.Match(pattern, className)
+	matched, err := path.Match(pattern, className)
+	if err != nil {
+		// Patterns are validated up front; on the rare chance an error escapes, treat it as no match.
+		return false
+	}
 	return matched
 }
