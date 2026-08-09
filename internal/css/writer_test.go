@@ -92,6 +92,10 @@ func TestWriterWrite(t *testing.T) {
 	})
 
 	t.Run("does not write output when backup fails", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("skipping permission-based test: running as root bypasses file permission checks")
+		}
+
 		tmpfile, err := os.CreateTemp("", "css*.css")
 		require.NoError(t, err)
 		tmpfile.Close()
