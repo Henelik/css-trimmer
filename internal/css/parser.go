@@ -12,7 +12,7 @@ func ParseCSS(content string) (ClassInventory, error) {
 
 	var inRule bool
 	var ruleStart int
-	inventory := make(ClassInventory, len(lines))
+	inventory := make(ClassInventory)
 
 	for i, line := range lines {
 		lineNum := i + 1

@@ -30,7 +30,7 @@ func NewScanner(cfg *config.Config) *Scanner {
 func (s *Scanner) Scan(srcDir string) ([]string, int, error) {
 	if _, err := os.Stat(srcDir); err != nil {
 		if os.IsNotExist(err) {
-			return s.classes, s.filesScanned, nil
+			return nil, 0, nil
 		}
 		return nil, 0, err
 	}
