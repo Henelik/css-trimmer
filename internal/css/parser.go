@@ -23,18 +23,21 @@ func ParseCSS(content string) (ClassInventory, error) {
 			continue
 		}
 
-		// Start of rule - extract selector
+		// Start of rule - extract selector(s)
 		if strings.Contains(trimmed, "{") {
 			inRule = true
 			ruleStart = lineNum
 
-			// Extract selector (everything before the {)
-			selectorPart := strings.Split(trimmed, "{")[0]
-			classes := extractClassesFromSelector(selectorPart)
-
-			for _, className := range classes {
-				if _, exists := inventory[className]; !exists {
-					inventory[className] = ClassInfo{StartLine: ruleStart, EndLine: lineNum}
+			// Extract selectors from every '{' segment on this line, so classes
+			// inside single-line nested at-rules (e.g. @media { .foo { ... } })
+			// are captured rather than skipped.
+			parts := strings.Split(trimmed, "{")
+			for _, selectorPart := range parts[:len(parts)-1] {
+				classes := extractClassesFromSelector(selectorPart)
+				for _, className := range classes {
+					if _, exists := inventory[className]; !exists {
+						inventory[className] = ClassInfo{StartLine: ruleStart, EndLine: lineNum}
+					}
 				}
 			}
 		}
