@@ -195,6 +195,14 @@ div {
 		assert.Contains(t, inventory, "mobile-only")
 		assert.Contains(t, inventory, "desktop")
 	})
+
+	t.Run("parses single-line nested at-rules", func(t *testing.T) {
+		content := `@media (max-width: 768px) { .mobile-only { display: block; } }`
+		inventory, err := ParseCSS(content)
+
+		require.NoError(t, err)
+		assert.Contains(t, inventory, "mobile-only")
+	})
 }
 
 func TestExtractClassesFromSelector(t *testing.T) {
